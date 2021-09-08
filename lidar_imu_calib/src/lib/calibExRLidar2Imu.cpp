@@ -11,7 +11,7 @@ CalibExRLidarImu::CalibExRLidarImu()
     imu_buffer_.clear();
 
     // init downsample object
-    downer_.setLeafSize(0.1, 0.1, 0.1);
+    downer_.setLeafSize(0.7, 0.7, 0.7);
 
     // init register object
     register_.reset(new pclomp::NormalDistributionsTransform<PointT, PointT>());
