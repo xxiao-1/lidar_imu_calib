@@ -45,6 +45,22 @@ struct ImuData
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
+struct ChassisData
+{
+    double stamp;
+    Eigen::Vector3d velocity;
+    Eigen::Vector3d angVelocity;
+
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+struct ChassisFrame
+{
+     double stamp;
+     Eigen::Vector3d gyr;
+     Eigen::Quaterniond rot;
+};
+
 class CalibExRLidarImu
 {
 public:
@@ -60,8 +76,17 @@ public:
     //@brief: add imu data and cache
     void addImuData(const ImuData &data);
 
+    //@brief: add chassis data and cache
+    void addChassisData(const ChassisData &data);
+
     //@brief: integration imu data, align lidar odom and imu
-    Eigen::Vector3d calib(bool integration = false);
+    Eigen::Vector3d calibLidar2Imu(bool integration = false);
+
+    //@brief:  align lidar odom and chassis
+    Eigen::Vector3d calibLidar2Chassis();
+
+    //@brief: align chassis odom and imu
+    // Eigen::Vector3d calibChassis2Imu(bool integration = false);
 
 private:
     //@brief: interpolated attitude from start attitude to end attitude by scale
@@ -70,15 +95,21 @@ private:
     //@brief: update relative transform between neighbor lidar frame by aligned imu data
     void optimize();
 
+    //@brief: update relative transform between neighbor lidar frame by aligned imu data
+    void optimizeLidar2Chassis();
+
     //@brief: solve least square answer by constraints
     Eigen::Quaterniond solve(const vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>> &corres);
 
     Eigen::Vector3d init_R_{0.0, 0.0, 0.0};
-    CloudT::Ptr last_lidar_cloud_{nullptr};                                 // last lidar cloud
+    CloudT::Ptr last_lidar_cloud_{nullptr};
     vector<LidarFrame> lidar_buffer_;                                       // record relative transform between neighbor lidar frame
     vector<ImuData> imu_buffer_;                                            // record raw imu datas
+    vector<ChassisFrame> chassis_buffer_;                                    // record raw chassis datas
     vector<pair<LidarFrame, Eigen::Quaterniond>> aligned_lidar_imu_buffer_; // aligned lidar frame and interpolated imu attitude at lidar stamp
-    Eigen::Quaterniond q_l_b_;                                              // result
+    vector<pair<LidarFrame, Eigen::Quaterniond>> aligned_lidar_chassis_buffer_; // aligned lidar frame and interpolated imu attitude at lidar stamp
+    Eigen::Quaterniond q_l_b_;  
+    Eigen::Quaterniond q_l_v_;                                                // result
 
     CloudT::Ptr local_map_{nullptr};                                              // local map
     pcl::VoxelGrid<PointT> downer_;                                               // downsample local map

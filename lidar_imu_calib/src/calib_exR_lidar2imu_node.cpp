@@ -8,6 +8,7 @@
 #include <queue>
 #include <time.h>
 #include "calibExRLidar2Imu.h"
+#include "lidar_imu_calib/chassis_data.h"
 
 #include <boost/foreach.hpp>
 #define foreach BOOST_FOREACH
@@ -18,6 +19,7 @@ using namespace std;
 
 queue<sensor_msgs::PointCloud2ConstPtr> lidar_buffer;
 queue<sensor_msgs::ImuConstPtr> imu_buffer;
+bool needLidar=false, needImu=false, needChassis=false;
 
 void lidarCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
 {
@@ -29,19 +31,69 @@ void imuCallback(const sensor_msgs::ImuConstPtr &msg)
     imu_buffer.push(msg);
 }
 
+ChassisData vehicleDynamicsModel(double t, double Velocity, double Steer) {
+        ChassisData chassis_out;
+
+        double steer = 0, bias = 0;
+        double vx=0, vy=0, vz=0, vel=0;
+        double beta;
+        const double k1 = 30082 * 2;//front tyre
+        const double k2 = 31888 * 2;//rear tyre
+        const double mass = 1096;//zhiliang
+        const double len = 2.3;
+        const double len_a = 1.0377;//qianzhou
+        const double len_b = 1.2623;//houzhou
+        const double i0 = 17.4;
+        const double K = mass * (len_a / k2 - len_b / k1) / (len * len);
+
+        vel = Velocity / 3.6;//速度
+        steer = -(Steer + bias) * M_PI / 180;//方向盘转角
+
+        beta = (1 + mass * vel * vel * len_a / (2 * len * len_b * k2)) * len_b * steer / i0 / len / (1 - K * vel * vel);
+        vy = vel * sin(beta);
+        vx = vel * cos(beta);
+        double rz = vel * steer / i0 / len / (1 - K * vel * vel);
+        chassis_out.angVelocity = {0, 0, rz};
+        chassis_out.velocity = {vx, vy, vz};
+        chassis_out.stamp = t;
+        return chassis_out;
+    }
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "calib_exR_lidar2imu_node");
     ros::NodeHandle nh, pnh("~");
 
-    // read data topic
-    string lidar_topic, imu_topic;
-    if (!pnh.getParam("lidar_topic", lidar_topic) || !pnh.getParam("imu_topic", imu_topic))
+    // read calib type
+    string calib_type;
+    if (!pnh.getParam("calib_type", calib_type))
     {
-        cout << "please config param: lidar_topic, imu_topic !!!" << endl;
+        cout << "please config param: calib_type !!!" << endl;
         return 0;
     }
 
+std::cout<<"calib_type"<<calib_type<<endl;
+    if (calib_type == "lidar2imu"){
+        needLidar = true;
+        needImu = true;
+    }else if(calib_type == "lidar2chassis"){
+        needLidar = true;
+        needChassis = true;
+    }else if(calib_type == "chassis2imu"){
+        needChassis = true;
+        needImu = true;
+    }
+    std::cout<<"needLidar"<<needLidar<<"needImu"<<needImu<<"needChassis"<<needChassis<<endl;
+
+    // read data topic
+    string lidar_topic, imu_topic, chassis_topic;
+    if (!pnh.getParam("lidar_topic", lidar_topic) || !pnh.getParam("imu_topic", imu_topic) || !pnh.getParam("chassis_topic", chassis_topic))
+    {
+        cout << "please config param: lidar_topic, imu_topic ,chassis_topic !!!" << endl;
+        return 0;
+    }
+
+        
     // initialize caliber
     CalibExRLidarImu caliber;
 
@@ -60,6 +112,7 @@ int main(int argc, char **argv)
     vector<string> topics;
     topics.push_back(lidar_topic);
     topics.push_back(imu_topic);
+    topics.push_back(chassis_topic);
     rosbag::View view(bag, rosbag::TopicQuery(topics));
 
     // read data and add data 逐条读取bag内消息
@@ -67,7 +120,7 @@ int main(int argc, char **argv)
     {
         // add lidar msg
         sensor_msgs::PointCloud2ConstPtr lidar_msg = m.instantiate<sensor_msgs::PointCloud2>();
-        if (lidar_msg != NULL)
+        if (needLidar && lidar_msg != NULL)
         {
             ROS_INFO_STREAM_THROTTLE(5.0, "add lidar msg ......");
 
@@ -81,7 +134,7 @@ int main(int argc, char **argv)
 
         // add imu msg
         sensor_msgs::ImuConstPtr imu_msg = m.instantiate<sensor_msgs::Imu>();
-        if (imu_msg)
+        if (needImu && imu_msg)
         {
             ImuData data;
             data.acc = Eigen::Vector3d(imu_msg->linear_acceleration.x,
@@ -96,6 +149,18 @@ int main(int argc, char **argv)
                                           imu_msg->orientation.z);
             data.stamp = imu_msg->header.stamp.toSec();
             caliber.addImuData(data);
+        }
+
+        // add chassis msg
+        lidar_imu_calib::chassis_data::ConstPtr chassis_msg=m.instantiate<lidar_imu_calib::chassis_data>();
+        if(needChassis && chassis_msg){
+
+            ChassisData data;
+            data = vehicleDynamicsModel (chassis_msg->header.stamp.toSec(),chassis_msg->Velocity,chassis_msg->SteeringAngle);
+            if(chassis_msg->Velocity>0){
+                caliber.addChassisData(data);
+                std::cout<<"chassis_msg->Velocity:"<<chassis_msg->Velocity<<endl;
+            }
         }
     }
 #else
@@ -146,7 +211,15 @@ int main(int argc, char **argv)
 #endif
 
     // calib 结果
-    Eigen::Vector3d rpy = caliber.calib();
+    Eigen::Vector3d rpy;
+    if (needLidar && needImu){
+        rpy = caliber.calibLidar2Imu();
+    }else if(needLidar && needChassis){
+        rpy = caliber.calibLidar2Chassis();
+    }else{
+        // rpy = caliber.calibChassis2Imu();
+    }
+
     Eigen::Matrix3d rot = Eigen::Matrix3d(Eigen::AngleAxisd(rpy[2], Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(rpy[1], Eigen::Vector3d::UnitY()) * Eigen::AngleAxisd(rpy[0], Eigen::Vector3d::UnitX()));
     cout << "result euler angle(RPY) : " << rpy[0] << " " << rpy[1] << " " << rpy[2] << endl;
     cout << "result extrinsic rotation matrix : " << endl;

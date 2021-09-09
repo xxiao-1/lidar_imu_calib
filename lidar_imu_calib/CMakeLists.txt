@@ -14,13 +14,31 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   tf
   rosbag
+  std_msgs
+  message_generation
 )
 
 find_package(cmake_modules REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 find_package(PCL 1.7 REQUIRED)
+add_message_files(
+  FILES
+  chassis_data.msg
+)
 
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
+
+catkin_package(
+  INCLUDE_DIRS include
+
+  CATKIN_DEPENDS
+  std_msgs
+  message_generation
+)
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES lidar_imu_calib
@@ -46,3 +64,5 @@ add_library(calib src/lib/calibExRLidar2Imu.cpp)
 target_link_libraries(calib ${catkin_LIBRARIES} ${PCL_LIBRARIES} ndt_omp)
 add_executable(calib_exR_lidar2imu_node src/calib_exR_lidar2imu_node.cpp)
 target_link_libraries(calib_exR_lidar2imu_node calib)
+
+
