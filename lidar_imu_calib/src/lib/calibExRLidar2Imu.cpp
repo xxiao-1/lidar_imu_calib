@@ -129,7 +129,7 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
     frame.T = result_T;
     Eigen::Matrix4d temp1 = lidar_buffer_.back().gT;
     Eigen::Matrix4d temp2 = result_T;
-    frame.gT = temp1 * temp2;
+    frame.gT = temp1 * temp2; // 绝对位姿
     lidar_buffer_.push_back(move(frame));
 
     // debug
@@ -164,6 +164,7 @@ Eigen::Quaterniond CalibExRLidarImu::getInterpolatedAttitude(const Eigen::Quater
     return move(q_ie_w);
 }
 
+// solve函数
 Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>> &corres)
 {
     if (corres.size() == 0)
@@ -175,6 +176,7 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
     cout << "constraints size " << corres.size() << endl;
 
     // transform quaternion to skew symmetric matrix
+    // 四元数到斜对称矩阵的变换
     auto toSkewSymmetric = [](const Eigen::Vector3d &q) -> Eigen::Matrix3d {
         Eigen::Matrix3d mat = Eigen::Matrix3d::Zero();
         mat(0, 1) = -q.z();
@@ -188,6 +190,7 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
     };
 
     // create homogeneous linear equations
+    // 创建齐次线性方程组 
     Eigen::MatrixXd A(corres.size() * 4, 4);
     for (int i = 0; i < corres.size(); i++)
     {
@@ -219,6 +222,7 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
     }
 
     // solve homogeneous linear equations by svd method
+    // 奇异值分解法求解齐次线性方程组
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeFullU | Eigen::ComputeFullV);
     Eigen::Matrix<double, 4, 1> x = svd.matrixV().col(3);
     Eigen::Quaterniond q_l_b(x(0), x(1), x(2), x(3));
@@ -318,6 +322,7 @@ void CalibExRLidarImu::optimize()
     q_l_b_ = result;
 }
 
+// 将所有数据一起解算
 Eigen::Vector3d CalibExRLidarImu::calib(bool integration)
 {
     if (lidar_buffer_.size() == 0 || imu_buffer_.size() == 0)
@@ -357,6 +362,7 @@ Eigen::Vector3d CalibExRLidarImu::calib(bool integration)
     }
 
     // get time-aligned lidar odometry rotation and imu integration rotation
+    // 找到每一帧lidar对应的IMU的rot
     auto last_imu_it = imu_buffer_.begin();
     for (int i = 0; i < lidar_buffer_.size(); i++)
     {
@@ -406,6 +412,7 @@ Eigen::Vector3d CalibExRLidarImu::calib(bool integration)
         corres.push_back(move(pair<Eigen::Quaterniond, Eigen::Quaterniond>(q_l2_l1, q_b2_b1)));
         corres1_ = corres;
     }
+    // 统一solve
     q_l_b_ = solve(corres);
 
     // optimize: use initial result to estimate transform between neighbor lidar frame for improving matching precise

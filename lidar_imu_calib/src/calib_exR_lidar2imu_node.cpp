@@ -62,7 +62,7 @@ int main(int argc, char **argv)
     topics.push_back(imu_topic);
     rosbag::View view(bag, rosbag::TopicQuery(topics));
 
-    // read data and add data
+    // read data and add data 逐条读取bag内消息
     foreach (rosbag::MessageInstance const m, view)
     {
         // add lidar msg
@@ -145,7 +145,7 @@ int main(int argc, char **argv)
     }
 #endif
 
-    // calib
+    // calib 结果
     Eigen::Vector3d rpy = caliber.calib();
     Eigen::Matrix3d rot = Eigen::Matrix3d(Eigen::AngleAxisd(rpy[2], Eigen::Vector3d::UnitZ()) * Eigen::AngleAxisd(rpy[1], Eigen::Vector3d::UnitY()) * Eigen::AngleAxisd(rpy[0], Eigen::Vector3d::UnitX()));
     cout << "result euler angle(RPY) : " << rpy[0] << " " << rpy[1] << " " << rpy[2] << endl;
