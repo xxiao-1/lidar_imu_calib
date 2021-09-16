@@ -31,6 +31,7 @@ void CalibExRLidarImu::setInitExR(Eigen::Vector3d init_R)
     init_R_ = init_R;
 }
 
+// 每条消息都要执行一次
 void CalibExRLidarImu::addLidarData(const LidarData &data)
 {
     if (!data.cloud || data.cloud->size() == 0)
@@ -94,7 +95,7 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
     lidar_buffer_.push_back(move(frame)); // 地图逐渐形成，匹配用的是法向量，不是ICP
 
     // update local map
-    *local_map_ += *aligned;
+    *local_map_ += *aligned; // 最后再加入地图中
 #else
     // init first lidar frame and set it as zero pose
     if (!last_lidar_cloud_)
@@ -228,7 +229,7 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
         double angle_distance = 180.0 / M_PI * q_b2_b1.angularDistance(q_l2_l1);
         double huber = angle_distance > 2.0 ? 2.0 / angle_distance : 1.0;
 
-        A.block<4, 4>(i * 4, 0) = huber * (left_Q_b2_b1 - right_Q_l2_l1);
+        A.block<4, 4>(i * 4, 0) = huber * (left_Q_b2_b1 - right_Q_l2_l1); // TODO:whu huber
     }
 
     // solve homogeneous linear equations by svd method
@@ -241,7 +242,7 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
 }
 
 /*
-  优化solve结果
+  优化solve结果,一次性执行所有电晕
 */
 void CalibExRLidarImu::optimize()
 {
@@ -276,7 +277,7 @@ void CalibExRLidarImu::optimize()
         Eigen::Quaterniond q_b1_w = aligned1.second;
         Eigen::Quaterniond q_b2_w = aligned2.second;
         Eigen::Quaterniond est_q_b2_b1 = q_b1_w.inverse() * q_b2_w;
-        Eigen::Matrix3d est_R_l2_l1 = Eigen::Matrix3d(q_l_b_.inverse() * est_q_b2_b1 * q_l_b_);
+        Eigen::Matrix3d est_R_l2_l1 = Eigen::Matrix3d(q_l_b_.inverse() * est_q_b2_b1 * q_l_b_); // 用imu变化求lidar的变化
         Eigen::Matrix3d est_R_l2_m = R_l1_m * est_R_l2_l1;
         Eigen::Matrix4d est_T_l2_m = Eigen::Matrix4d::Identity();
         est_T_l2_m.block<3, 3>(0, 0) = est_R_l2_m;
@@ -285,7 +286,7 @@ void CalibExRLidarImu::optimize()
         register_->setInputSource(aligned2.first.cloud);
         register_->setInputTarget(local_map_);
         CloudT::Ptr aligned(new CloudT);
-        register_->align(*aligned, est_T_l2_m.cast<float>());
+        register_->align(*aligned, est_T_l2_m.cast<float>()); // 相当于多了一个初值
         if (!register_->hasConverged())
         {
             cout << "register cant converge, please check initial value !!!" << endl;
@@ -322,7 +323,7 @@ void CalibExRLidarImu::optimize()
         corres2_ = corres;
     }
 
-    Eigen::Quaterniond result = solve(corres);
+    Eigen::Quaterniond result = solve(corres); // 再次solve
     result.normalize();
 
     // check whether optimize fail
