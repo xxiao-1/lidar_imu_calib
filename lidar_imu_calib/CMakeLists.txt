@@ -22,6 +22,7 @@ find_package(cmake_modules REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 find_package(PCL 1.7 REQUIRED)
+
 add_message_files(
   FILES
   chassis_data.msg

@@ -3,7 +3,12 @@
 #include <utility>
 #include <tf/tf.h>
 #include <pcl/io/pcd_io.h>
-
+#include <Eigen/SVD>
+#include <Eigen/Sparse>
+#include <unsupported/Eigen/KroneckerProduct>
+#include <Eigen/LU>
+#include <Eigen/QR>
+#include <stdlib.h>
 #define USE_SCAN_2_MAP true
 
 CalibExRLidarImu::CalibExRLidarImu()
@@ -141,21 +146,18 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
     // pcl::io::savePCDFile(pcd_file, *g_cloud);
 #endif
 }
-
-void CalibExRLidarImu::addImuData(const ImuData &data)
+// 不能求delta是因为还没有和lidar时间对齐，要先插值，再求delta
+void CalibExRLidarImu::addImuFrame(const ImuFrame &data)
 {
     imu_buffer_.push_back(data);
 }
 
-void CalibExRLidarImu::addChassisData(const ChassisData &data)
+void CalibExRLidarImu::addChassisFrame(const ChassisFrame &data)
 {
-    ChassisFrame frame;
-    frame.stamp = data.stamp;
-    frame.gyr = data.angVelocity;
-    chassis_buffer_ .push_back(frame);
+    chassis_buffer_.push_back(data);
 }
 
-// 插值
+// 姿态插值
 Eigen::Quaterniond CalibExRLidarImu::getInterpolatedAttitude(const Eigen::Quaterniond &q_s_w, const Eigen::Quaterniond &q_e_w, double scale)
 {
     if (0 == scale || scale > 1)
@@ -175,8 +177,128 @@ Eigen::Quaterniond CalibExRLidarImu::getInterpolatedAttitude(const Eigen::Quater
     return move(q_ie_w);
 }
 
-// solve函数
-Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>> &corres)
+// 位移插值
+Eigen::Vector3d CalibExRLidarImu::getInterpolatedTranslation(const Eigen::Vector3d &t_s_w, const Eigen::Vector3d &t_e_w, double scale)
+{
+    if (0 == scale || scale > 1)
+        return move(Eigen::Vector3d(0));
+
+    Eigen::Vector3d t_ie_w = t_e_w * scale + t_s_w * (1-scale);
+
+    return move(t_ie_w);
+}
+
+Eigen::Matrix3d CalibExRLidarImu::skew(Eigen::Vector3d u)
+{
+    Eigen::Matrix3d u_hat = Eigen::MatrixXd::Zero(3, 3);
+    u_hat(0, 1) = u(2);
+    u_hat(1, 0) = -u(2);
+    u_hat(0, 2) = -u(1);
+    u_hat(2, 0) = u(1);
+    u_hat(1, 2) = u(0);
+    u_hat(2, 1) = -u(0);
+
+    return u_hat;
+}
+
+// Eigen::Matrix4d CalibExRLidarImu::solveX(const vector<pair<Frame, Frame>> &corres)
+// {
+//     if (corres.size() == 0)
+//     {
+//         cout << "no constraint found !!!" << endl;
+//         return move(Eigen::Matrix4d::Identity());
+//     }
+
+//     cout << "constraints size " << corres.size() << endl;
+
+//     Eigen::MatrixXd m = Eigen::MatrixXd::Zero(12 * corres.size(), 12);
+//     Eigen::VectorXd b = Eigen::VectorXd::Zero(12 * corres.size());
+//     for (int i = 0; i < corres.size(); i++)
+//     {
+//         //extract R,t from homogophy matrix
+//         // TODO: AX=XB 是B到A的
+//         Frame A = corres[i].first;
+//         Frame B = corres[i].second;
+
+//         Eigen::Matrix3d Ra = A.rot.normalized().toRotationMatrix();
+//         Eigen::Vector3d Ta = A.tra;
+//         Eigen::Matrix3d Rb = B.rot.normalized().toRotationMatrix();
+//         Eigen::Vector3d Tb = B.tra;
+//         m.block<9, 9>(12 * i, 0) = Eigen::MatrixXd::Identity(9, 9) - Eigen::kroneckerProduct(Ra, Rb);
+//         Eigen::Matrix3d Ta_skew = skew(Ta);
+//         m.block<3, 9>(12 * i + 9, 0) = Eigen::kroneckerProduct(Eigen::MatrixXd::Identity(3, 3), Tb.transpose());
+//         m.block<3, 3>(12 * i + 9, 9) = Eigen::MatrixXd::Identity(3, 3) - Ra;
+//         b.block<3, 1>(12 * i + 9, 0) = Ta;
+//     }
+
+//     Eigen::Matrix<double, 12, 1> x = m.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
+//     Eigen::Matrix3d R = Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(x.data()); //row major
+
+//     Eigen::JacobiSVD<Eigen::MatrixXd> svd(R, Eigen::ComputeThinU | Eigen::ComputeThinV);
+//     Eigen::Matrix4d handeyetransformation = Eigen::Matrix4d::Identity(4, 4);
+//     handeyetransformation.topLeftCorner(3, 3) = svd.matrixU() * svd.matrixV().transpose();
+//     handeyetransformation.topRightCorner(3, 1) = x.block<3, 1>(9, 0);
+//     return handeyetransformation;
+// }
+
+Eigen::Matrix4d CalibExRLidarImu::solveX(const vector<pair<Frame, Frame>> &corres)
+{
+
+    if (corres.size() == 0)
+    {
+        cout << "no constraint found !!!" << endl;
+        return move(Eigen::Matrix4d::Identity());
+    }
+
+    cout << "constraints size " << corres.size() << endl;
+
+    Eigen::MatrixXd m = Eigen::MatrixXd::Zero(12 * corres.size(), 12);
+    Eigen::VectorXd b = Eigen::VectorXd::Zero(12 * corres.size());
+    for (int i = 0; i < corres.size(); i++)
+    {
+        //extract R,t from homogophy matrix
+        // TODO: AX=XB 是B到A的
+        Frame B = corres[i].first;
+        Frame A = corres[i].second;
+        //extract R,t from homogophy matrix
+        Eigen::Matrix3d Ra = A.rot.normalized().toRotationMatrix();
+        Eigen::Vector3d Ta = A.tra;
+        Eigen::Matrix3d Rb = B.rot.normalized().toRotationMatrix();
+        Eigen::Vector3d Tb = B.tra;
+
+        m.block<9, 9>(12 * i, 0) = Eigen::MatrixXd::Identity(9, 9) - Eigen::kroneckerProduct(Ra, Rb);
+        Eigen::Matrix3d Ta_skew = skew(Ta);
+        m.block<3, 9>(12 * i + 9, 0) = Eigen::kroneckerProduct(Ta_skew, Tb.transpose());
+        m.block<3, 3>(12 * i + 9, 9) = Ta_skew - Ta_skew * Ra;
+    }
+
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(m, Eigen::ComputeFullV | Eigen::ComputeFullU);
+    // CHECK(svd.computeV()) << "fail to compute V";
+
+    Eigen::Matrix3d R_alpha;
+    R_alpha.row(0) = svd.matrixV().block<3, 1>(0, 11).transpose();
+    R_alpha.row(1) = svd.matrixV().block<3, 1>(3, 11).transpose();
+    R_alpha.row(2) = svd.matrixV().block<3, 1>(6, 11).transpose();
+    //double a = std::fabs(R_alpha.determinant());
+    //double alpha = R_alpha.determinant()/(pow(std::fabs(R_alpha.determinant()),4./3.));
+    double det = R_alpha.determinant();
+    double alpha = std::pow(std::abs(det), 4. / 3.) / det;
+    Eigen::HouseholderQR<Eigen::Matrix3d> qr(R_alpha / alpha);
+
+    Eigen::Matrix4d handeyetransformation = Eigen::Matrix4d ::Identity(4, 4);
+    Eigen::Matrix3d Q = qr.householderQ();
+    Eigen::Matrix3d Rwithscale = alpha * Q.transpose() * R_alpha;
+    Eigen::Vector3d R_diagonal = Rwithscale.diagonal();
+    for (int i = 0; i < 3; i++)
+    {
+        handeyetransformation.block<3, 1>(0, i) = int(R_diagonal(i) >= 0 ? 1 : -1) * Q.col(i);
+    }
+
+    handeyetransformation.topRightCorner(3, 1) = svd.matrixV().block<3, 1>(9, 11) / alpha;
+    return handeyetransformation;
+}
+// solve函数 lidar 2 imu
+Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Frame, Frame>> &corres)
 {
     if (corres.size() == 0)
     {
@@ -188,7 +310,8 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
 
     // transform quaternion to skew symmetric matrix
     // 四元数到斜对称矩阵的变换
-    auto toSkewSymmetric = [](const Eigen::Vector3d &q) -> Eigen::Matrix3d {
+    auto toSkewSymmetric = [](const Eigen::Vector3d &q) -> Eigen::Matrix3d
+    {
         Eigen::Matrix3d mat = Eigen::Matrix3d::Zero();
         mat(0, 1) = -q.z();
         mat(0, 2) = q.y();
@@ -201,13 +324,13 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
     };
 
     // create homogeneous linear equations
-    // 创建齐次线性方程组 
+    // 创建齐次线性方程组
     Eigen::MatrixXd A(corres.size() * 4, 4);
     for (int i = 0; i < corres.size(); i++)
     {
         // get relative transform
-        const auto &q_l2_l1 = corres[i].first;
-        const auto &q_b2_b1 = corres[i].second;
+        const auto &q_l2_l1 = corres[i].first.rot;
+        const auto &q_b2_b1 = corres[i].second.rot;
 
         // get left product matrix
         Eigen::Vector3d q_b2_b1_vec = q_b2_b1.vec();
@@ -229,7 +352,7 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
         double angle_distance = 180.0 / M_PI * q_b2_b1.angularDistance(q_l2_l1);
         double huber = angle_distance > 2.0 ? 2.0 / angle_distance : 1.0;
 
-        A.block<4, 4>(i * 4, 0) = huber * (left_Q_b2_b1 - right_Q_l2_l1); // TODO:whu huber
+        A.block<4, 4>(i * 4, 0) = huber * (left_Q_b2_b1 - right_Q_l2_l1); // TODO:why huber
     }
 
     // solve homogeneous linear equations by svd method
@@ -238,11 +361,33 @@ Eigen::Quaterniond CalibExRLidarImu::solve(const vector<pair<Eigen::Quaterniond,
     Eigen::Matrix<double, 4, 1> x = svd.matrixV().col(3);
     Eigen::Quaterniond q_l_b(x(0), x(1), x(2), x(3));
 
+    // t
+    Eigen::MatrixXd A1(corres.size() * 3, 3);
+    Eigen::MatrixXd B1(corres.size() * 3, 1);
+    for (int i = 0; i < corres.size(); i++)
+    {
+        // get relative transform
+        Eigen::Vector3d t_l2_l1 = corres[i].first.tra;
+        Eigen::Vector3d t_b2_b1 = corres[i].second.tra;
+        Eigen::Quaterniond q_b2_b1 = corres[i].second.rot;
+
+        A1.block<3, 3>(i, 0) = Eigen::MatrixXd::Identity(3, 3) - q_b2_b1.normalized().toRotationMatrix();
+        B1.block<3, 1>(i, 0) = corres[i].second.tra - q_l_b.normalized().toRotationMatrix() * corres[i].first.tra;
+        // std::cout<<"chassis======================"<<corres[i].second.tra.transpose()<<std::endl;
+        // std::cout<<"lidar--------------------"<<corres[i].first.tra.transpose()<<std::endl;
+        // std::cout<<"lidar changed************"<<(q_l_b.toRotationMatrix()*corres[i].first.tra).transpose()<<std::endl;
+    }
+
+    Eigen::MatrixXd t = A1.colPivHouseholderQr().solve(B1);
+    // Eigen::MatrixXd t1 =A1.llt().solve(B1);
+    std::cout << "t=" << t << std::endl;
+    // std::cout<<"llt_t1="<<t1<<std::endl;
+
     return move(q_l_b);
 }
 
 /*
-  优化solve结果,一次性执行所有电晕
+  优化solve结果,一次性执行所有点云
 */
 void CalibExRLidarImu::optimize()
 {
@@ -274,8 +419,8 @@ void CalibExRLidarImu::optimize()
 
         // calculate estimated T_l_m
         Eigen::Matrix3d R_l1_m = aligned1.first.gT.block<3, 3>(0, 0);
-        Eigen::Quaterniond q_b1_w = aligned1.second;
-        Eigen::Quaterniond q_b2_w = aligned2.second;
+        Eigen::Quaterniond q_b1_w = aligned1.second.rot;
+        Eigen::Quaterniond q_b2_w = aligned2.second.rot;
         Eigen::Quaterniond est_q_b2_b1 = q_b1_w.inverse() * q_b2_w;
         Eigen::Matrix3d est_R_l2_l1 = Eigen::Matrix3d(q_l_b_.inverse() * est_q_b2_b1 * q_l_b_); // 用imu变化求lidar的变化
         Eigen::Matrix3d est_R_l2_m = R_l1_m * est_R_l2_l1;
@@ -304,7 +449,7 @@ void CalibExRLidarImu::optimize()
     }
 
     // generate constraints
-    vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>> corres;
+    vector<pair<Frame, Frame>> corres;
     for (int i = 1; i < aligned_lidar_imu_buffer_.size(); i++)
     {
         // get neighbor frame
@@ -315,11 +460,19 @@ void CalibExRLidarImu::optimize()
         Eigen::Quaterniond q_l2_l1 = Eigen::Quaterniond(aligned2.first.T.block<3, 3>(0, 0));
 
         // calculate relative transform between neighbor interpolated imu
-        Eigen::Quaterniond q_b1_w = aligned1.second;
-        Eigen::Quaterniond q_b2_w = aligned2.second;
+        Eigen::Quaterniond q_b1_w = aligned1.second.rot;
+        Eigen::Quaterniond q_b2_w = aligned2.second.rot;
         Eigen::Quaterniond q_b2_b1 = q_b1_w.inverse() * q_b2_w;
 
-        corres.push_back(move(pair<Eigen::Quaterniond, Eigen::Quaterniond>(q_l2_l1, q_b2_b1)));
+        Frame b_frame;
+        b_frame.rot = q_b2_b1;
+        b_frame.tra = aligned2.second.tra - aligned1.second.tra;
+
+        Frame l_frame;
+        l_frame.rot = q_l2_l1;
+        l_frame.tra = aligned2.first.T.block<3, 1>(0, 3).transpose();
+
+        corres.push_back(move(pair<Frame, Frame>(l_frame, b_frame)));
         corres2_ = corres;
     }
 
@@ -330,8 +483,8 @@ void CalibExRLidarImu::optimize()
     double angle = fabs(q_l_b_.angularDistance(result));
     if (angle > 0.5236)
     {
-       cout << "the difference between before and after optimze is " << angle << " which greater than given threshold 0.5236 !!!" << endl;
-       return;
+        cout << "the difference between before and after optimze is " << angle << " which greater than given threshold 0.5236 !!!" << endl;
+        return;
     }
     q_l_b_ = result;
 }
@@ -369,8 +522,8 @@ void CalibExRLidarImu::optimizeLidar2Chassis()
 
         // calculate estimated T_l_m
         Eigen::Matrix3d R_l1_m = aligned1.first.gT.block<3, 3>(0, 0);
-        Eigen::Quaterniond q_b1_w = aligned1.second;
-        Eigen::Quaterniond q_b2_w = aligned2.second;
+        Eigen::Quaterniond q_b1_w = aligned1.second.rot;
+        Eigen::Quaterniond q_b2_w = aligned2.second.rot;
         Eigen::Quaterniond est_q_b2_b1 = q_b1_w.inverse() * q_b2_w;
         Eigen::Matrix3d est_R_l2_l1 = Eigen::Matrix3d(q_l_v_.inverse() * est_q_b2_b1 * q_l_v_);
         Eigen::Matrix3d est_R_l2_m = R_l1_m * est_R_l2_l1;
@@ -399,7 +552,7 @@ void CalibExRLidarImu::optimizeLidar2Chassis()
     }
 
     // generate constraints
-    vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>> corres;
+    vector<pair<Frame, Frame>> corres;
     for (int i = 1; i < aligned_lidar_chassis_buffer_.size(); i++)
     {
         // get neighbor frame
@@ -410,23 +563,32 @@ void CalibExRLidarImu::optimizeLidar2Chassis()
         Eigen::Quaterniond q_l2_l1 = Eigen::Quaterniond(aligned2.first.T.block<3, 3>(0, 0));
 
         // calculate relative transform between neighbor interpolated imu
-        Eigen::Quaterniond q_b1_w = aligned1.second;
-        Eigen::Quaterniond q_b2_w = aligned2.second;
+        Eigen::Quaterniond q_b1_w = aligned1.second.rot;
+        Eigen::Quaterniond q_b2_w = aligned2.second.rot;
         Eigen::Quaterniond q_b2_b1 = q_b1_w.inverse() * q_b2_w;
 
-        corres.push_back(move(pair<Eigen::Quaterniond, Eigen::Quaterniond>(q_l2_l1, q_b2_b1)));
+        Frame b_frame;
+        b_frame.rot = q_b2_b1;
+        b_frame.tra = aligned2.second.tra - aligned1.second.tra;
+
+        Frame l_frame;
+        l_frame.rot = q_l2_l1;
+        l_frame.tra = aligned2.first.T.block<3, 1>(0, 3).transpose();
+
+        corres.push_back(move(pair<Frame, Frame>(l_frame, b_frame)));
         corres2_ = corres;
     }
 
     Eigen::Quaterniond result = solve(corres);
+    Eigen::Matrix4d res = solveX(corres);
     result.normalize();
 
     // check whether optimize fail
     double angle = fabs(q_l_v_.angularDistance(result));
     if (angle > 0.5236)
     {
-       cout << "the difference between before and after optimze is " << angle << " which greater than given threshold 0.5236 !!!" << endl;
-       return;
+        cout << "the difference between before and after optimze is " << angle << " which greater than given threshold 0.5236 !!!" << endl;
+        return;
     }
     q_l_v_ = result;
 }
@@ -438,29 +600,17 @@ void CalibExRLidarImu::optimizeLidar2Chassis()
 3、solve
 4、optimize 优化点云T gT
 */
-Eigen::Vector3d CalibExRLidarImu::calibLidar2Imu(bool integration)
+Eigen::Vector3d CalibExRLidarImu::calibLidar2Imu()
 {
-    if ( lidar_buffer_.size() == 0|| imu_buffer_.size() == 0)
+    // std::cout<<"lidar_buffer_.size()"<<lidar_buffer_.size()<<"imu_buffer_.size()"<<imu_buffer_.size()<<std::endl;
+    if (lidar_buffer_.size() == 0 || imu_buffer_.size() == 0)
     {
         cout << "no lidar data or imu data !!!" << endl;
         return init_R_;
     }
 
-    cout << "total lidar buffer size " << lidar_buffer_.size() 
+    cout << "total lidar buffer size " << lidar_buffer_.size()
          << ", imu buffer size " << imu_buffer_.size() << endl;
-
-    // integration rotation of imu, when raw imu attitude has big error
-    if (integration)
-    {
-        imu_buffer_[0].rot = Eigen::Quaterniond::Identity();
-        for (int i = 1; i < imu_buffer_.size(); i++)
-        {
-            Eigen::Vector3d bar_gyr = 0.5 * (imu_buffer_[i - 1].gyr + imu_buffer_[i].gyr);
-            Eigen::Vector3d angle_inc = bar_gyr * (imu_buffer_[i].stamp - imu_buffer_[i - 1].stamp);
-            Eigen::Quaterniond rot_inc = Eigen::Quaterniond(1.0, 0.5 * angle_inc[0], 0.5 * angle_inc[1], 0.5 * angle_inc[2]);
-            imu_buffer_[i].rot = imu_buffer_[i - 1].rot * rot_inc;
-        }
-    }
 
     // move invalid lidar frame which got before first imu frame
     auto invalid_lidar_it = lidar_buffer_.begin();
@@ -500,17 +650,27 @@ Eigen::Vector3d CalibExRLidarImu::calibLidar2Imu(bool integration)
         if (imu_buffer_.end() == imu_it2)
             break;
         assert(imu_it2->stamp >= lidar_frame.stamp || imu_it1->stamp < imu_it2->stamp); // this shouldnt happen
+        double scale = (lidar_frame.stamp - imu_it1->stamp) / (imu_it2->stamp - imu_it1->stamp);
+
         Eigen::Quaterniond q_b1_w = imu_it1->rot;
         Eigen::Quaterniond q_b2_w = imu_it2->rot;
-        double scale = (lidar_frame.stamp - imu_it1->stamp) / (imu_it2->stamp - imu_it1->stamp);
         Eigen::Quaterniond q_inter_w = getInterpolatedAttitude(q_b1_w, q_b2_w, scale);
 
+        Eigen::Vector3d t_b1_w = imu_it1->tra;
+        Eigen::Vector3d t_b2_w = imu_it2->tra;
+        Eigen::Vector3d t_inter_w = getInterpolatedTranslation(t_b1_w, t_b2_w, scale);
+
+        ImuFrame imu_frame;
+        imu_frame.stamp = lidar_frame.stamp;
+        imu_frame.rot = q_inter_w;
+        imu_frame.tra = t_inter_w;
+
         // buffer aligned information
-        aligned_lidar_imu_buffer_.push_back(move(pair<LidarFrame, Eigen::Quaterniond>(lidar_frame, q_inter_w)));
+        aligned_lidar_imu_buffer_.push_back(move(pair<LidarFrame, ImuFrame>(lidar_frame, imu_frame)));
     }
 
     // solve initial transform between lidar and imu
-    vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>> corres(0);
+    vector<pair<Frame, Frame>> corres(0);
     for (int i = 1; i < aligned_lidar_imu_buffer_.size(); i++)
     {
         // get neighbor aligned frame
@@ -519,20 +679,59 @@ Eigen::Vector3d CalibExRLidarImu::calibLidar2Imu(bool integration)
 
         // get initial relative transform between neighbor lidar
         Eigen::Quaterniond q_l2_l1 = Eigen::Quaterniond(aligned_lidar_imu_buffer_[i].first.T.block<3, 3>(0, 0));
+        // std::cout << i << "===" << aligned_lidar_imu_buffer_[i].first.T.block<3, 1>(0, 3) << std::endl;
 
         // calculate relative transform between neighbor interpolated imu
-        Eigen::Quaterniond q_b1_w = aligned1.second;
-        Eigen::Quaterniond q_b2_w = aligned2.second;
+        Eigen::Quaterniond q_b1_w = aligned1.second.rot;
+        Eigen::Quaterniond q_b2_w = aligned2.second.rot;
         Eigen::Quaterniond q_b2_b1 = q_b1_w.inverse() * q_b2_w;
 
-        corres.push_back(move(pair<Eigen::Quaterniond, Eigen::Quaterniond>(q_l2_l1, q_b2_b1)));
+        Frame b_frame;
+        b_frame.rot = q_b2_b1;
+        b_frame.tra = aligned2.second.tra - aligned1.second.tra;
+
+        Frame l_frame;
+        l_frame.rot = q_l2_l1;
+        l_frame.tra = aligned2.first.T.block<3, 1>(0, 3).transpose();
+
+        corres.push_back(move(pair<Frame, Frame>(l_frame, b_frame)));
         corres1_ = corres;
     }
     // 统一solve
     q_l_b_ = solve(corres);
 
+    vector<pair<Frame, Frame>> corresX(0);
+    for (int i = 1; i < aligned_lidar_imu_buffer_.size(); i++)
+    {
+        // get neighbor aligned frame
+        const auto &aligned1 = aligned_lidar_imu_buffer_[i - 1];
+        const auto &aligned2 = aligned_lidar_imu_buffer_[i];
+
+        // get initial relative transform between neighbor lidar
+        Eigen::Matrix4d q_l2_l1_m = aligned_lidar_imu_buffer_[i].first.gT.inverse() * aligned_lidar_imu_buffer_[i - 1].first.gT;
+        Eigen::Quaterniond q_l2_l1 = Eigen::Quaterniond(q_l2_l1_m.block<3, 3>(0, 0));
+ 
+        // calculate relative transform between neighbor interpolated imu
+        Eigen::Quaterniond q_b1_w = aligned1.second.rot;
+        Eigen::Quaterniond q_b2_w = aligned2.second.rot;
+        Eigen::Quaterniond q_b2_b1 = q_b1_w.inverse() * q_b2_w;
+
+        Frame b_frame;
+        b_frame.rot = q_b2_b1;
+        b_frame.tra = aligned2.second.tra - aligned1.second.tra;
+
+        Frame l_frame;
+        l_frame.rot = q_l2_l1;
+        l_frame.tra = aligned2.first.T.block<3, 1>(0, 3).transpose();
+
+        corresX.push_back(move(pair<Frame, Frame>(l_frame, b_frame)));
+    }
+    Eigen::Matrix4d res = solveX(corresX);
+    std::cout << "solveX result" << std::endl
+              << res << std::endl;
+
     // optimize: use initial result to estimate transform between neighbor lidar frame for improving matching precise
-    optimize();
+    // optimize();
 
     // get result
     tf::Matrix3x3 mat(tf::Quaternion(q_l_b_.x(), q_l_b_.y(), q_l_b_.z(), q_l_b_.w()));
@@ -550,18 +749,8 @@ Eigen::Vector3d CalibExRLidarImu::calibLidar2Chassis()
         return init_R_;
     }
 
-    cout << "total lidar buffer size " << lidar_buffer_.size() 
+    cout << "total lidar buffer size " << lidar_buffer_.size()
          << ", chassis buffer size " << chassis_buffer_.size() << endl;
-
-    // integrate chassis
-    chassis_buffer_[0].rot = Eigen::Quaterniond::Identity();
-    for (int i = 1; i < chassis_buffer_.size(); i++)
-    {
-        Eigen::Vector3d bar_gyr = 0.5 * (chassis_buffer_[i - 1].gyr + chassis_buffer_[i].gyr);
-        Eigen::Vector3d angle_inc = bar_gyr * (chassis_buffer_[i].stamp - chassis_buffer_[i - 1].stamp);
-        Eigen::Quaterniond rot_inc = Eigen::Quaterniond(1.0, 0.5 * angle_inc[0], 0.5 * angle_inc[1], 0.5 * angle_inc[2]);
-        chassis_buffer_[i].rot = chassis_buffer_[i - 1].rot * rot_inc;
-    }
 
     // move invalid lidar frame which got before first chassis frame
     auto invalid_lidar_it = lidar_buffer_.begin();
@@ -600,17 +789,28 @@ Eigen::Vector3d CalibExRLidarImu::calibLidar2Chassis()
         if (chassis_buffer_.end() == chassis_it2)
             break;
         assert(chassis_it2->stamp >= lidar_frame.stamp || chassis_it1->stamp < chassis_it2->stamp); // this shouldnt happen
+        double scale = (lidar_frame.stamp - chassis_it1->stamp) / (chassis_it2->stamp - chassis_it1->stamp);
         Eigen::Quaterniond q_b1_w = chassis_it1->rot;
         Eigen::Quaterniond q_b2_w = chassis_it2->rot;
-        double scale = (lidar_frame.stamp - chassis_it1->stamp) / (chassis_it2->stamp - chassis_it1->stamp);
         Eigen::Quaterniond q_inter_w = getInterpolatedAttitude(q_b1_w, q_b2_w, scale);
 
+        Eigen::Vector3d t_b1_w = chassis_it1->tra;
+        Eigen::Vector3d t_b2_w = chassis_it2->tra;
+        Eigen::Vector3d t_inter_w = getInterpolatedTranslation(t_b1_w, t_b2_w, scale);
+
+        ChassisFrame chassis_frame;
+        chassis_frame.stamp = lidar_frame.stamp;
+        chassis_frame.rot = q_inter_w;
+        chassis_frame.tra = t_inter_w;
+        // std::cout<<"chassis q = "<<q_inter_w<<std::endl;
+        //  std::cout<<"chassis t = "<<t_inter_w.transpose()<<std::endl;
+
         // buffer aligned information
-        aligned_lidar_chassis_buffer_.push_back(move(pair<LidarFrame, Eigen::Quaterniond>(lidar_frame, q_inter_w)));
+        aligned_lidar_chassis_buffer_.push_back(move(pair<LidarFrame, ChassisFrame>(lidar_frame, chassis_frame)));
     }
 
     // solve initial transform between lidar and imu
-    vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>> corres(0);
+    vector<pair<Frame, Frame>> corres(0);
     for (int i = 1; i < aligned_lidar_chassis_buffer_.size(); i++)
     {
         // get neighbor aligned frame
@@ -621,18 +821,60 @@ Eigen::Vector3d CalibExRLidarImu::calibLidar2Chassis()
         Eigen::Quaterniond q_l2_l1 = Eigen::Quaterniond(aligned_lidar_chassis_buffer_[i].first.T.block<3, 3>(0, 0));
 
         // calculate relative transform between neighbor interpolated imu
-        Eigen::Quaterniond q_v1_w = aligned1.second;
-        Eigen::Quaterniond q_v2_w = aligned2.second;
+        Eigen::Quaterniond q_v1_w = aligned1.second.rot;
+        Eigen::Quaterniond q_v2_w = aligned2.second.rot;
         Eigen::Quaterniond q_v2_v1 = q_v1_w.inverse() * q_v2_w;
 
-        corres.push_back(move(pair<Eigen::Quaterniond, Eigen::Quaterniond>(q_l2_l1, q_v2_v1)));
+        Frame b_frame;
+        b_frame.rot = q_v2_v1;
+        b_frame.tra = aligned2.second.tra - aligned1.second.tra;
+
+        Frame l_frame;
+        l_frame.rot = q_l2_l1;
+        l_frame.tra = aligned2.first.T.block<3, 1>(0, 3).transpose();
+
+        corres.push_back(move(pair<Frame, Frame>(l_frame, b_frame)));
         corres1_ = corres;
+        //  std::cout<<"chassis q = "<<q_v2_v1<<std::endl;
+         std::cout<<"chassis t = "<<b_frame.tra.transpose()<<std::endl;
+
+        // std::cout<<"lidar q= "<<q_l2_l1<<std::endl;
+         std::cout<<"lidar t= "<<l_frame.tra.transpose()<<std::endl;
     }
     // 统一solve
     q_l_v_ = solve(corres);
 
+    vector<pair<Frame, Frame>> corresX(0);
+    for (int i = 1; i < aligned_lidar_chassis_buffer_.size(); i++)
+    {
+        // get neighbor aligned frame
+        const auto &aligned1 = aligned_lidar_chassis_buffer_[i - 1];
+        const auto &aligned2 = aligned_lidar_chassis_buffer_[i];
+
+        // get initial relative transform between neighbor lidar
+        Eigen::Quaterniond q_l2_l1 = Eigen::Quaterniond(aligned_lidar_chassis_buffer_[i].first.T.block<3, 3>(0, 0));
+
+        // calculate relative transform between neighbor interpolated imu
+        Eigen::Quaterniond q_v1_w = aligned1.second.rot;
+        Eigen::Quaterniond q_v2_w = aligned2.second.rot;
+        Eigen::Quaterniond q_v2_v1 = q_v2_w * q_v1_w.inverse();
+
+        Frame b_frame;
+        b_frame.rot = q_v2_v1;
+        b_frame.tra = aligned2.second.tra - aligned1.second.tra;
+
+        Frame l_frame;
+        l_frame.rot = q_l2_l1;
+        l_frame.tra = aligned2.first.T.block<3, 1>(0, 3).transpose();
+
+        corresX.push_back(move(pair<Frame, Frame>(l_frame, b_frame)));
+    }
+    Eigen::Matrix4d res = solveX(corresX);
+    std::cout << "solveX result" << std::endl
+              << res << std::endl;
+
     // optimize: use initial result to estimate transform between neighbor lidar frame for improving matching precise
-    optimizeLidar2Chassis();
+    // optimizeLidar2Chassis();
 
     // get result
     tf::Matrix3x3 mat(tf::Quaternion(q_l_v_.x(), q_l_v_.y(), q_l_v_.z(), q_l_v_.w()));
