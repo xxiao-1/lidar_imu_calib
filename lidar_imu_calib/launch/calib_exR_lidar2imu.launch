@@ -3,7 +3,7 @@
         <param name="/lidar_topic" value="/velodyne_points"/>
         <param name="/imu_topic" value="/zed2/zed_node/imu/data"/>
         <param name="/chassis_topic" value="/chassis_msgs"/>  
-        <param name="/calib_type" value="lidar2chassis"/>    
+        <param name="/calib_type" value="lidar2imu"/>    
         <!-- lidar2chassis || chassis2imu -->
         <param name="/bag_file" value="/home/xxiao/dataset/parkinglot/Parkinglot1.bag"/>
     </node>

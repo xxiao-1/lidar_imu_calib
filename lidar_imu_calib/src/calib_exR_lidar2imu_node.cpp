@@ -125,12 +125,15 @@ int main(int argc, char **argv)
     double imu_delta_t;
     Eigen::Vector3d imu_velocity(0, 0, 0);
     Eigen::Vector3d imu_shift(0, 0, 0);
+    Eigen::Vector3d last_imu_acc(0, 0, 0);
 
     ros::Time chassis_time;
     size_t chassis_num = 0;
     double chassis_delta_t;
     Eigen::Quaterniond chassis_rot = Eigen::Quaterniond::Identity();
     Eigen::Vector3d chassis_shift(0, 0, 0);
+    Eigen::Vector3d last_chassis_angv(0, 0, 0);
+    Eigen::Vector3d last_chassis_v(0, 0, 0);
 
     // read data and add data 逐条读取bag内消息
     foreach (rosbag::MessageInstance const m, view)
@@ -176,9 +179,10 @@ int main(int argc, char **argv)
             {
                 imu_delta_t = (imu_msg->header.stamp - imu_time).toSec();
                 imu_time = imu_msg->header.stamp;
-                imu_velocity = imu_velocity + data.acc * imu_delta_t;
-                imu_shift = imu_shift + imu_velocity * imu_delta_t + data.acc * imu_delta_t * imu_delta_t / 2;
+                imu_velocity = imu_velocity + (0.5 * last_imu_acc + 0.5 * data.acc) * imu_delta_t;
+                imu_shift = imu_shift + imu_velocity * imu_delta_t + (0.5 * last_imu_acc + 0.5 * data.acc) * imu_delta_t * imu_delta_t / 2;
             }
+            last_imu_acc = data.acc;
             imuFrame.rot = data.rot;
             imuFrame.tra = imu_shift;
             // std::cout<<"---- imu_shift"<<imu_shift<<std::endl;
@@ -208,14 +212,16 @@ int main(int argc, char **argv)
                     chassis_delta_t = (chassis_msg->header.stamp - chassis_time).toSec();
                     chassis_time = chassis_msg->header.stamp;
 
-                    chassis_shift = chassis_shift + data.velocity * chassis_delta_t;
-                    std::cout<<"delta xyz"<<data.velocity *chassis_delta_t<<std::endl;
+                    chassis_shift = chassis_shift + (0.5 * data.velocity + 0.5 * last_chassis_v) * chassis_delta_t;
+                    std::cout << "delta xyz" << data.velocity * chassis_delta_t << std::endl;
 
-                    Eigen::Vector3d angle_inc = data.angVelocity * chassis_delta_t;
-                    std::cout<<"delta angle"<<angle_inc<<std::endl;
+                    Eigen::Vector3d angle_inc = (0.5 * data.angVelocity + 0.5 * last_chassis_angv) * chassis_delta_t;
+                    std::cout << "delta angle" << angle_inc << std::endl;
                     Eigen::Quaterniond rot_inc = Eigen::Quaterniond(1.0, 0.5 * angle_inc[0], 0.5 * angle_inc[1], 0.5 * angle_inc[2]);
                     chassis_rot = chassis_rot * rot_inc;
                 }
+                last_chassis_v = data.velocity;
+                last_chassis_angv = data.angVelocity;
                 chassisFrame.rot = chassis_rot;
                 chassisFrame.tra = chassis_shift;
                 caliber.addChassisFrame(chassisFrame);
