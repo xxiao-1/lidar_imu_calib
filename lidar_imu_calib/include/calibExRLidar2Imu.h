@@ -104,9 +104,9 @@ public:
 private:
     //@brief: interpolated attitude from start attitude to end attitude by scale
     Eigen::Quaterniond getInterpolatedAttitude(const Eigen::Quaterniond &q_s_w, const Eigen::Quaterniond &q_e_w, double scale);
- 
+
     Eigen::Vector3d getInterpolatedTranslation(const Eigen::Vector3d &t_s_w, const Eigen::Vector3d &t_e_w, double scale);
-    
+
     Eigen::Matrix3d skew(Eigen::Vector3d u);
     //@brief: update relative transform between neighbor lidar frame by aligned imu data
     void optimize();
@@ -115,22 +115,21 @@ private:
     void optimizeLidar2Chassis();
 
     //@brief: solve least square answer by constraints
-    Eigen::Quaterniond solve(const vector<pair<Frame, Frame>> &corres);
+    Frame solve(const vector<pair<Frame, Frame>> &corres);
 
     Eigen::Matrix4d solveX(const vector<pair<Frame, Frame>> &corres);
 
     Eigen::Vector3d init_R_{0.0, 0.0, 0.0};
     CloudT::Ptr last_lidar_cloud_{nullptr};
-    vector<LidarFrame> lidar_buffer_;                                       // record relative transform between neighbor lidar frame
-    vector<ImuFrame> imu_buffer_;                                            // record raw imu datas
-    vector<ChassisFrame> chassis_buffer_;                                    // record raw chassis datas
-    vector<pair<LidarFrame, ImuFrame>> aligned_lidar_imu_buffer_; // aligned lidar frame and interpolated imu attitude at lidar stamp
+    vector<LidarFrame> lidar_buffer_;                                     // record relative transform between neighbor lidar frame
+    vector<ImuFrame> imu_buffer_;                                         // record raw imu datas
+    vector<ChassisFrame> chassis_buffer_;                                 // record raw chassis datas
+    vector<pair<LidarFrame, ImuFrame>> aligned_lidar_imu_buffer_;         // aligned lidar frame and interpolated imu attitude at lidar stamp
     vector<pair<LidarFrame, ChassisFrame>> aligned_lidar_chassis_buffer_; // aligned lidar frame and interpolated imu attitude at lidar stamp
-    Eigen::Quaterniond q_l_b_;  
-    Eigen::Quaterniond q_l_v_;                                                // result
-    Eigen::Quaterniond t_l_b_;  
-    Eigen::Quaterniond t_l_v_;                                                // result
-
+    Eigen::Quaterniond q_l_b_;
+    Eigen::Quaterniond q_l_v_; // result
+    Eigen::Quaterniond t_l_b_;
+    Eigen::Quaterniond t_l_v_; // result
 
     CloudT::Ptr local_map_{nullptr};                                              // local map
     pcl::VoxelGrid<PointT> downer_;                                               // downsample local map

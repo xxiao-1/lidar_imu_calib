@@ -213,10 +213,10 @@ int main(int argc, char **argv)
                     chassis_time = chassis_msg->header.stamp;
 
                     chassis_shift = chassis_shift + (0.5 * data.velocity + 0.5 * last_chassis_v) * chassis_delta_t;
-                    std::cout << "delta xyz" << data.velocity * chassis_delta_t << std::endl;
+                    // std::cout << "delta xyz" << data.velocity * chassis_delta_t << std::endl;
 
                     Eigen::Vector3d angle_inc = (0.5 * data.angVelocity + 0.5 * last_chassis_angv) * chassis_delta_t;
-                    std::cout << "delta angle" << angle_inc << std::endl;
+                    // std::cout << "delta angle" << angle_inc << std::endl;
                     Eigen::Quaterniond rot_inc = Eigen::Quaterniond(1.0, 0.5 * angle_inc[0], 0.5 * angle_inc[1], 0.5 * angle_inc[2]);
                     chassis_rot = chassis_rot * rot_inc;
                 }
