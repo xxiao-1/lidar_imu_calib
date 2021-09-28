@@ -19,6 +19,7 @@ Eigen::Vector3d eigenRotToEigenVector3dAngleAxis(Input eigenQuat)
   return ax3d.angle() * ax3d.axis();
 }
 
+
 namespace camodocal
 {
 
@@ -76,16 +77,6 @@ namespace camodocal
     /// size N
     ///
     /// @pre all sets of parameters must have the same number of elements
-    /* static void estimateHandEyeScrew(const std::vector<Eigen::Vector3d,
-     * Eigen::aligned_allocator<Eigen::Vector3d> >& rvecs1, */
-    /*                                  const std::vector<Eigen::Vector3d,
-     * Eigen::aligned_allocator<Eigen::Vector3d> >& tvecs1, */
-    /*                                  const std::vector<Eigen::Vector3d,
-     * Eigen::aligned_allocator<Eigen::Vector3d> >& rvecs2, */
-    /*                                  const std::vector<Eigen::Vector3d,
-     * Eigen::aligned_allocator<Eigen::Vector3d> >& tvecs2, */
-    /*                                  Eigen::Matrix4d& H_12, bool planarMotion
-     * = false); */
 
     static void estimateHandEyeScrew(
         const std::vector<Eigen::Vector3d,
@@ -96,11 +87,10 @@ namespace camodocal
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
-                          const Eigen::Quaterniond q, const Eigen::MatrixXd t,
-        Eigen::Matrix4d &H_12, bool planarMotion = false
-        );
+        const Eigen::Quaterniond q, const Eigen::MatrixXd t,
+        Eigen::Matrix4d &H_12, bool planarMotion = false);
 
-    static void estimateHandEyeScrew(
+    static void estimateMultiHandEyeScrew(
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
         const std::vector<Eigen::Vector3d,
@@ -109,12 +99,19 @@ namespace camodocal
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
-        Eigen::Matrix4d &H_12, ceres::Solver::Summary &summary,
-        bool planarMotion = false);
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs3,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs3,
+        const Eigen::Affine3d a12, const Eigen::Affine3d a31, const Eigen::Affine3d a23,
+        Eigen::Matrix4d &H_12, Eigen::Matrix4d &H_31, Eigen::Matrix4d &H_23, bool planarMotion);
 
     static void setVerbose(bool on = true);
 
     Eigen::Affine3d solveCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const Eigen::Quaterniond q, const Eigen::MatrixXd t);
+
+    std::vector<Eigen::Affine3d> solveMultiCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const EigenAffineVector &t3,
+                         const Eigen::Affine3d a1, const Eigen::Affine3d a2, const Eigen::Affine3d a3);
 
   private:
     /// @brief solve ax^2 + bx + c = 0
@@ -139,9 +136,7 @@ namespace camodocal
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
         const Eigen::Quaterniond q, const Eigen::MatrixXd t);
-
-    static void estimateHandEyeScrewRefine(
-        DualQuaterniond &dq,
+    static void estimateMultiHandEyeScrewRefine(
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
         const std::vector<Eigen::Vector3d,
@@ -150,9 +145,15 @@ namespace camodocal
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
-        ceres::Solver::Summary &summary);
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs3,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs3,
+        DualQuaterniond &dq12, DualQuaterniond &dq31, DualQuaterniond &dq23);
 
     static bool mVerbose;
+
+    static void printResult(Eigen::Matrix4d result);
   };
 }
 

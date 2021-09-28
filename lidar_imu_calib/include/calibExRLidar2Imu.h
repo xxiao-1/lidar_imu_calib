@@ -18,6 +18,8 @@
 using namespace std;
 using PointT = pcl::PointXYZI;
 using CloudT = pcl::PointCloud<PointT>;
+typedef std::vector<Eigen::Affine3d, Eigen::aligned_allocator<Eigen::Affine3d>>
+    EigenAffineVector;
 
 struct LidarData
 {
@@ -35,14 +37,7 @@ struct LidarFrame
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-struct ImuFrame
-{
-    double stamp;
-    Eigen::Quaterniond rot;
-    Eigen::Vector3d tra;
-};
-
-struct ChassisFrame
+struct SensorFrame
 {
     double stamp;
     Eigen::Quaterniond rot;
@@ -87,19 +82,19 @@ public:
     void addLidarData(const LidarData &data);
 
     //@brief: add imu data and cache
-    void addImuFrame(const ImuFrame &data);
+    void addImuFrame(const SensorFrame &data);
 
     //@brief: add chassis data and cache
-    void addChassisFrame(const ChassisFrame &data);
+    void addChassisFrame(const SensorFrame &data);
 
     //@brief: integration imu data, align lidar odom and imu
-    Eigen::Vector3d calibLidar2Imu();
+    void calibLidar2Imu();
 
     //@brief:  align lidar odom and chassis
-    Eigen::Vector3d calibLidar2Chassis();
+    void calibLidar2Chassis();
 
     //@brief: align chassis odom and imu
-    // Eigen::Vector3d calibChassis2Imu(bool integration = false);
+    void calibMulti();
 
 private:
     //@brief: interpolated attitude from start attitude to end attitude by scale
@@ -109,10 +104,7 @@ private:
 
     Eigen::Matrix3d skew(Eigen::Vector3d u);
     //@brief: update relative transform between neighbor lidar frame by aligned imu data
-    void optimize();
-
-    //@brief: update relative transform between neighbor lidar frame by aligned imu data
-    void optimizeLidar2Chassis();
+    void optimize(string sensorName,vector<pair<LidarFrame, SensorFrame>>& aligned_sensor_buffer_);
 
     //@brief: solve least square answer by constraints
     Frame solve(const vector<pair<Frame, Frame>> &corres);
@@ -121,22 +113,35 @@ private:
 
     Eigen::Vector3d init_R_{0.0, 0.0, 0.0};
     CloudT::Ptr last_lidar_cloud_{nullptr};
-    vector<LidarFrame> lidar_buffer_;                                     // record relative transform between neighbor lidar frame
-    vector<ImuFrame> imu_buffer_;                                         // record raw imu datas
-    vector<ChassisFrame> chassis_buffer_;                                 // record raw chassis datas
-    vector<pair<LidarFrame, ImuFrame>> aligned_lidar_imu_buffer_;         // aligned lidar frame and interpolated imu attitude at lidar stamp
-    vector<pair<LidarFrame, ChassisFrame>> aligned_lidar_chassis_buffer_; // aligned lidar frame and interpolated imu attitude at lidar stamp
-    Eigen::Quaterniond q_l_b_;
-    Eigen::Quaterniond q_l_v_; // result
+    vector<LidarFrame> lidar_buffer_;                                    // record relative transform between neighbor lidar frame
+    vector<SensorFrame> imu_buffer_;                                     // record raw imu datas
+    vector<SensorFrame> chassis_buffer_;                                 // record raw chassis datas
+    vector<pair<LidarFrame, SensorFrame>> aligned_lidar_imu_buffer_;     // aligned lidar frame and interpolated imu attitude at lidar stamp
+    vector<pair<LidarFrame, SensorFrame>> aligned_lidar_chassis_buffer_; // aligned lidar frame and interpolated imu attitude at lidar stamp
+
+    Frame f_l_i;
+    Frame f_l_c;
     Eigen::Quaterniond t_l_b_;
     Eigen::Quaterniond t_l_v_; // result
 
-    CloudT::Ptr local_map_{nullptr};                                              // local map
+    CloudT::Ptr local_map_{nullptr};
     pcl::VoxelGrid<PointT> downer_;                                               // downsample local map
     pclomp::NormalDistributionsTransform<PointT, PointT>::Ptr register_{nullptr}; // register object
 
     vector<pair<Frame, Frame>> corres1_;
-    vector<pair<Frame, Frame>> corres2_;
+    vector<pair<Frame, Frame>> corres2_; // 点云优化后
+
+    vector<EigenAffineVector> corres2affine(vector<pair<Frame, Frame>> corres);
+
+    void getAlignedBuffer(vector<SensorFrame> sensor_buffer_, string sensorName);
+
+    vector<pair<Frame, Frame>> alignedBuffer2corres(vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
+
+    Eigen::Affine3d frame2affine(Frame frame);
+
+    void printFrame(Frame frame);
+
+    void saveCombinedMap(string sensorName, string fileName,vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };

@@ -46,13 +46,52 @@ namespace camodocal
             DualQuaternion<T> dq1_ = dq * dq2 * dq.inverse();
 
             DualQuaternion<T> diff = (dq1.inverse() * dq1_).log();
-            residual[0] = diff.real().squaredNorm() + diff.dual().squaredNorm();
+            residual[0] = diff.real().squaredNorm() + 0.00001 * diff.dual().squaredNorm();
 
             return true;
         }
 
     private:
         Eigen::Vector3d m_rvec1, m_rvec2, m_tvec1, m_tvec2;
+
+    public:
+        /// @see
+        /// http://eigen.tuxfamily.org/dox/group__TopicStructHavingEigenMembers.html
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    };
+
+    class MultiError
+    {
+    public:
+        MultiError() {}
+
+        template <typename T>
+        bool operator()(const T *const q12_4x1, const T *const t12_3x1, const T *const q31_4x1, const T *const t31_3x1, const T *const q23_4x1, const T *const t23_3x1,
+                        T *residual) const
+        {
+            Eigen::Quaternion<T> q12(q12_4x1[0], q12_4x1[1], q12_4x1[2], q12_4x1[3]);
+            Eigen::Matrix<T, 3, 1> t12;
+            t12 << t12_3x1[0], t12_3x1[1], t12_3x1[2];
+
+            DualQuaternion<T> dq12(q12, t12);
+
+            Eigen::Quaternion<T> q31(q31_4x1[0], q31_4x1[1], q31_4x1[2], q31_4x1[3]);
+            Eigen::Matrix<T, 3, 1> t31;
+            t31 << t31_3x1[0], t31_3x1[1], t31_3x1[2];
+
+            DualQuaternion<T> dq31(q31, t31);
+
+            Eigen::Quaternion<T> q23(q23_4x1[0], q23_4x1[1], q23_4x1[2], q23_4x1[3]);
+            Eigen::Matrix<T, 3, 1> t23;
+            t23 << t23_3x1[0], t23_3x1[1], t23_3x1[2];
+
+            DualQuaternion<T> dq23(q23, t23);
+
+            DualQuaternion<T> diff = (dq12 * dq23 * dq31).log();
+            residual[0] = diff.real().squaredNorm() + diff.dual().squaredNorm();
+
+            return true;
+        }
 
     public:
         /// @see
@@ -113,7 +152,6 @@ namespace camodocal
         return ScrewToStransposeBlockofT(a, a_prime, b, b_prime);
     }
 
-    // yes
     void HandEyeCalibration::estimateHandEyeScrew(
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
@@ -123,7 +161,7 @@ namespace camodocal
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
-        const Eigen::Quaterniond q, const Eigen::MatrixXd t,
+        const Eigen::Quaterniond qIn, const Eigen::MatrixXd tIn,
         Eigen::Matrix4d &H_12, bool planarMotion)
     {
         int motionCount = rvecs1.size();
@@ -146,7 +184,7 @@ namespace camodocal
         }
 
         // 获得初值
-        auto dq = estimateHandEyeScrewInitial(T, planarMotion);
+        DualQuaternion<double> dq(qIn, tIn);
 
         H_12 = dq.toMatrix();
         if (mVerbose)
@@ -155,57 +193,7 @@ namespace camodocal
             std::cout << H_12 << std::endl;
         }
 
-        estimateHandEyeScrewRefine(dq, rvecs1, tvecs1, rvecs2, tvecs2, q, t);
-
-        H_12 = dq.toMatrix();
-        if (mVerbose)
-        {
-            std::cout << "# INFO: After refinement: H_12 = " << std::endl;
-            std::cout << H_12 << std::endl;
-        }
-    }
-
-    // docs in header
-    void HandEyeCalibration::estimateHandEyeScrew(
-        const std::vector<Eigen::Vector3d,
-                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
-        const std::vector<Eigen::Vector3d,
-                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs1,
-        const std::vector<Eigen::Vector3d,
-                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
-        const std::vector<Eigen::Vector3d,
-                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
-        Eigen::Matrix4d &H_12, ceres::Solver::Summary &summary, bool planarMotion)
-    {
-        int motionCount = rvecs1.size();
-        Eigen::MatrixXd T(motionCount * 6, 8);
-        T.setZero();
-
-        for (size_t i = 0; i < motionCount; ++i)
-        {
-            const Eigen::Vector3d &rvec1 = rvecs1.at(i);
-            const Eigen::Vector3d &tvec1 = tvecs1.at(i);
-            const Eigen::Vector3d &rvec2 = rvecs2.at(i);
-            const Eigen::Vector3d &tvec2 = tvecs2.at(i);
-
-            // Skip cases with zero rotation
-            if (rvec1.norm() == 0 || rvec2.norm() == 0)
-                continue;
-
-            T.block<6, 8>(i * 6, 0) =
-                AxisAngleToSTransposeBlockOfT(rvec1, tvec1, rvec2, tvec2);
-        }
-
-        auto dq = estimateHandEyeScrewInitial(T, planarMotion);
-
-        H_12 = dq.toMatrix();
-        if (mVerbose)
-        {
-            std::cout << "# INFO: Before refinement: H_12 = " << std::endl;
-            std::cout << H_12 << std::endl;
-        }
-
-        estimateHandEyeScrewRefine(dq, rvecs1, tvecs1, rvecs2, tvecs2, summary);
+        estimateHandEyeScrewRefine(dq, rvecs1, tvecs1, rvecs2, tvecs2, qIn, tIn);
 
         H_12 = dq.toMatrix();
         if (mVerbose)
@@ -356,7 +344,7 @@ namespace camodocal
         return true;
     }
 
-    // docs in header
+    // ceres优化
     void HandEyeCalibration::estimateHandEyeScrewRefine(
         DualQuaterniond &dq,
         const std::vector<Eigen::Vector3d,
@@ -367,11 +355,15 @@ namespace camodocal
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
-        ceres::Solver::Summary &summary)
+        const Eigen::Quaterniond qIn, const Eigen::MatrixXd tIn)
     {
         Eigen::Matrix4d H = dq.toMatrix();
         double p[7] = {dq.real().w(), dq.real().x(), dq.real().y(), dq.real().z(),
                        H(0, 3), H(1, 3), H(2, 3)};
+        std::cout << "H" << H << std::endl;
+        // double p[7] = {qIn.w(), qIn.x(), qIn.y(), qIn.z(),
+        //                tIn(0, 0), tIn(1, 0), tIn(2, 0)};
+        ceres::Solver::Summary summary;
 
         ceres::Problem problem;
         for (size_t i = 0; i < rvecs1.size(); i++)
@@ -381,7 +373,7 @@ namespace camodocal
                 new ceres::AutoDiffCostFunction<PoseError, 1, 4, 3>(
                     new PoseError(rvecs1[i], tvecs1[i], rvecs2[i], tvecs2[i]));
 
-            problem.AddResidualBlock(costFunction, NULL, p, p + 4);
+            problem.AddResidualBlock(costFunction, NULL, p, p + 4); //p+4 平移量
         }
 
         // ceres deletes the object allocated here for the user
@@ -404,10 +396,12 @@ namespace camodocal
         }
 
         Eigen::Quaterniond q(p[0], p[1], p[2], p[3]);
+        Eigen::Quaterniond qn = q.normalized();
         Eigen::Vector3d t;
         t << p[4], p[5], p[6];
-        dq = DualQuaterniond(q, t);
+        dq = DualQuaterniond(qn, t);
     }
+
     Eigen::Affine3d HandEyeCalibration::solveCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const Eigen::Quaterniond q, const Eigen::MatrixXd t)
     {
 
@@ -448,36 +442,160 @@ namespace camodocal
                 rvecsFiducial.push_back(eigenRotToEigenVector3dAngleAxis(
                     fiducialInFirstFiducialBase.rotation()));
                 tvecsFiducial.push_back(fiducialInFirstFiducialBase.translation());
-                ROS_INFO("Hand Eye Calibration Transform Pair Added");
+                // ROS_INFO("Hand Eye Calibration Transform Pair Added");
 
                 Eigen::Vector4d r_tmp = robotTipinFirstTipBase.matrix().col(3);
                 r_tmp[3] = 0;
                 Eigen::Vector4d c_tmp = fiducialInFirstFiducialBase.matrix().col(3);
                 c_tmp[3] = 0;
 
-                std::cerr
-                    << "L2Norm EE: "
-                    << robotTipinFirstTipBase.matrix().block(0, 3, 3, 1).norm()
-                    << " vs Cam:"
-                    << fiducialInFirstFiducialBase.matrix().block(0, 3, 3, 1).norm()
-                    << std::endl;
+                // std::cerr
+                //     << "L2Norm EE: "
+                //     << robotTipinFirstTipBase.matrix().block(0, 3, 3, 1).norm()
+                //     << " vs Cam:"
+                //     << fiducialInFirstFiducialBase.matrix().block(0, 3, 3, 1).norm()
+                //     << std::endl;
             }
-            std::cerr << "EE transform: \n"
-                      << eigenEE.matrix() << std::endl;
-            std::cerr << "Cam transform: \n"
-                      << eigenCam.matrix() << std::endl;
+            // std::cerr << "EE transform: \n"
+            //           << eigenEE.matrix() << std::endl;
+            // std::cerr << "Cam transform: \n"
+            //           << eigenCam.matrix() << std::endl;
         }
 
         camodocal::HandEyeCalibration calib;
         Eigen::Matrix4d result;
         calib.estimateHandEyeScrew(rvecsArm, tvecsArm, rvecsFiducial, tvecsFiducial, q, t,
                                    result, false);
+
+        Eigen::Transform<double, 3, Eigen::Affine> resultAffine(result);
+
+        // std::cerr << "Result from "
+        //           << "EETFname"
+        //           << " to "
+        //           << "ARTagTFname"
+        //           << ":\n"
+        //           << result << std::endl;
+
+        // std::cerr << "Translation (x,y,z) : "
+        //           << resultAffine.translation().transpose() << std::endl;
+        // Eigen::Quaternion<double> quaternionResult(resultAffine.rotation());
+        // std::stringstream ss;
+        // ss << quaternionResult.w() << ", " << quaternionResult.x() << ", "
+        //    << quaternionResult.y() << ", " << quaternionResult.z() << std::endl;
+        // std::cerr << "Rotation (w,x,y,z): " << ss.str() << std::endl;
+
+        // std::cerr << "Result from "
+        //           << "ARTagTFname"
+        //           << " to "
+        //           << "EETFname"
+        //           << ":\n"
+        //           << result << std::endl;
+        // Eigen::Transform<double, 3, Eigen::Affine> resultAffineInv =
+        //     resultAffine.inverse();
+        // std::cerr << "Inverted translation (x,y,z) : "
+        //           << resultAffineInv.translation().transpose() << std::endl;
+        // quaternionResult = Eigen::Quaternion<double>(resultAffineInv.rotation());
+        // ss.clear();
+        // ss << quaternionResult.w() << " " << quaternionResult.x() << " "
+        //    << quaternionResult.y() << " " << quaternionResult.z() << std::endl;
+        // std::cerr << "Inverted rotation (w,x,y,z): " << ss.str() << std::endl;
+        return resultAffine;
+    }
+
+    std::vector<Eigen::Affine3d> HandEyeCalibration::solveMultiCeres(
+        const EigenAffineVector &t1, const EigenAffineVector &t2, const EigenAffineVector &t3,
+        const Eigen::Affine3d a1, const Eigen::Affine3d a2, const Eigen::Affine3d a3)
+    {
+
+        auto t1_it = t1.begin();
+        auto t2_it = t2.begin();
+        auto t3_it = t3.begin();
+
+        eigenVector tvecs1, rvecs1, tvecs2, rvecs2, tvecs3, rvecs3;
+
+        for (int i = 0; i < t1.size(); ++i, ++t1_it, ++t2_it)
+        {
+            auto &eigenLidar = *t1_it;
+            auto &eigenImu = *t2_it;
+            auto &eigenChassis = *t3_it;
+
+            Eigen::Affine3d deltaLidar = eigenLidar;
+            Eigen::Affine3d deltaImu = eigenImu;
+            Eigen::Affine3d deltaChassis = eigenChassis;
+
+            rvecs1.push_back(eigenRotToEigenVector3dAngleAxis(
+                deltaLidar.rotation()));
+            tvecs1.push_back(deltaLidar.translation());
+
+            rvecs2.push_back(eigenRotToEigenVector3dAngleAxis(
+                deltaImu.rotation()));
+            tvecs2.push_back(deltaImu.translation());
+
+            rvecs3.push_back(eigenRotToEigenVector3dAngleAxis(
+                deltaChassis.rotation()));
+            tvecs3.push_back(deltaChassis.translation());
+
+            // ROS_INFO("lidar imu chassis Calibration Transform Pairs Added");
+
+            // std::cerr
+            //     << "L2Norm Lidar: "
+            //     << deltaLidar.matrix().block(0, 3, 3, 1).norm()
+            //     << " vs Imu:"
+            //     << deltaImu.matrix().block(0, 3, 3, 1).norm()
+            //     << " vs Chassis:"
+            //     << deltaChassis.matrix().block(0, 3, 3, 1).norm()
+            //     << std::endl;
+
+            // std::cerr << "Lidar transform: \n"
+            //           << eigenLidar.matrix() << std::endl;
+            // std::cerr << "Imu transform: \n"
+            //           << eigenImu.matrix() << std::endl;
+            // std::cerr << "Chassis transform: \n"
+            //           << eigenChassis.matrix() << std::endl;
+        }
+
+        camodocal::HandEyeCalibration calib;
+        Eigen::Matrix4d result1, result2, result3;
+
+        calib.estimateMultiHandEyeScrew(rvecs1, tvecs2, rvecs1, tvecs2, rvecs1, tvecs2, a1, a2, a3,
+                                        result1, result2, result3, false);
+
         std::cerr << "Result from "
-                  << "EETFname"
+                  << "lidar"
                   << " to "
-                  << "ARTagTFname"
+                  << "imu"
                   << ":\n"
-                  << result << std::endl;
+                  << result1 << std::endl;
+        printResult(result1);
+
+        std::cerr << "Result from "
+                  << "chassis"
+                  << " to "
+                  << "lidar"
+                  << ":\n"
+                  << result2 << std::endl;
+        printResult(result2);
+
+        std::cerr << "Result from "
+                  << "imu"
+                  << " to "
+                  << "chassis"
+                  << ":\n"
+                  << result3 << std::endl;
+        printResult(result3);
+
+        std::vector<Eigen::Affine3d> resultList;
+        Eigen::Affine3d resultAffine1(result1);
+        Eigen::Affine3d resultAffine2(result2);
+        Eigen::Affine3d resultAffine3(result3);
+        resultList.push_back(resultAffine1);
+        resultList.push_back(resultAffine2);
+        resultList.push_back(resultAffine3);
+        return resultList;
+    }
+
+    void HandEyeCalibration::printResult(Eigen::Matrix4d result)
+    {
         Eigen::Transform<double, 3, Eigen::Affine> resultAffine(result);
         std::cerr << "Translation (x,y,z) : "
                   << resultAffine.translation().transpose() << std::endl;
@@ -486,28 +604,9 @@ namespace camodocal
         ss << quaternionResult.w() << ", " << quaternionResult.x() << ", "
            << quaternionResult.y() << ", " << quaternionResult.z() << std::endl;
         std::cerr << "Rotation (w,x,y,z): " << ss.str() << std::endl;
-
-        std::cerr << "Result from "
-                  << "ARTagTFname"
-                  << " to "
-                  << "EETFname"
-                  << ":\n"
-                  << result << std::endl;
-        Eigen::Transform<double, 3, Eigen::Affine> resultAffineInv =
-            resultAffine.inverse();
-        std::cerr << "Inverted translation (x,y,z) : "
-                  << resultAffineInv.translation().transpose() << std::endl;
-        quaternionResult = Eigen::Quaternion<double>(resultAffineInv.rotation());
-        ss.clear();
-        ss << quaternionResult.w() << " " << quaternionResult.x() << " "
-           << quaternionResult.y() << " " << quaternionResult.z() << std::endl;
-        std::cerr << "Inverted rotation (w,x,y,z): " << ss.str() << std::endl;
-        return resultAffine;
     }
 
-    // ceres优化
-    void HandEyeCalibration::estimateHandEyeScrewRefine(
-        DualQuaterniond &dq,
+    void HandEyeCalibration::estimateMultiHandEyeScrew(
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
         const std::vector<Eigen::Vector3d,
@@ -516,31 +615,120 @@ namespace camodocal
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
-        const Eigen::Quaterniond qIn, const Eigen::MatrixXd tIn)
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs3,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs3,
+        const Eigen::Affine3d a12, const Eigen::Affine3d a31, const Eigen::Affine3d a23,
+        Eigen::Matrix4d &H_12, Eigen::Matrix4d &H_31, Eigen::Matrix4d &H_23, bool planarMotion)
     {
-        Eigen::Matrix4d H = dq.toMatrix();
-        // double p[7] = {dq.real().w(), dq.real().x(), dq.real().y(), dq.real().z(),
-        //                H(0, 3), H(1, 3), H(2, 3)};
-        double p[7] = {qIn.w(), qIn.x(), qIn.y(), qIn.z(),
-                       tIn(0, 0), tIn(1, 0), tIn(2, 0)};
-        ceres::Solver::Summary summary;
+        DualQuaternion<double> dq12(Eigen::Quaternion<double>(a12.rotation()), Eigen::Matrix<double, 3, 1>(a12.translation()));
+        DualQuaternion<double> dq31(Eigen::Quaternion<double>(a31.rotation()), Eigen::Matrix<double, 3, 1>(a31.translation()));
+        DualQuaternion<double> dq23(Eigen::Quaternion<double>(a23.rotation()), Eigen::Matrix<double, 3, 1>(a23.translation()));
 
+        H_12 = dq12.toMatrix();
+        H_31 = dq31.toMatrix();
+        H_23 = dq23.toMatrix();
+        std::cout << "# INFO: Before refinement: H_12 = " << std::endl;
+        std::cout << H_12 << std::endl;
+        std::cout << "# INFO: Before refinement: H_31 = " << std::endl;
+        std::cout << H_31 << std::endl;
+        std::cout << "# INFO: Before refinement: H_23 = " << std::endl;
+        std::cout << H_23 << std::endl;
+
+        estimateMultiHandEyeScrewRefine(rvecs1, tvecs1, rvecs2, tvecs2, rvecs3, tvecs3, dq12, dq31, dq23);
+
+        H_12 = dq12.toMatrix();
+        H_31 = dq31.toMatrix();
+        H_23 = dq23.toMatrix();
+        if (mVerbose)
+        {
+            std::cout << "# INFO: After refinement: H_12 = " << std::endl;
+            std::cout << H_12 << std::endl;
+        }
+    }
+
+    // ceres优化
+    void HandEyeCalibration::estimateMultiHandEyeScrewRefine(
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs1,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs3,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs3,
+        DualQuaterniond &dq12, DualQuaterniond &dq31, DualQuaterniond &dq23)
+    {
+        Eigen::Matrix4d H12 = dq12.toMatrix();
+        double p12[7] = {dq12.real().w(), dq12.real().x(), dq12.real().y(), dq12.real().z(),
+                         H12(0, 3), H12(1, 3), H12(2, 3)};
+
+        Eigen::Matrix4d H31 = dq31.toMatrix();
+        double p31[7] = {dq31.real().w(), dq31.real().x(), dq31.real().y(), dq31.real().z(),
+                         H31(0, 3), H31(1, 3), H31(2, 3)};
+
+        Eigen::Matrix4d H23 = dq23.toMatrix();
+        double p23[7] = {dq23.real().w(), dq23.real().x(), dq23.real().y(), dq23.real().z(),
+                         H23(0, 3), H23(1, 3), H23(2, 3)};
+
+        ceres::Solver::Summary summary;
         ceres::Problem problem;
-        for (size_t i = 0; i < rvecs1.size(); i++)
+
+        int posePairSize = rvecs1.size();
+
+        for (size_t i = 0; i < posePairSize; i++)
         {
             // ceres deletes the objects allocated here for the user
             ceres::CostFunction *costFunction =
                 new ceres::AutoDiffCostFunction<PoseError, 1, 4, 3>(
                     new PoseError(rvecs1[i], tvecs1[i], rvecs2[i], tvecs2[i]));
 
-            problem.AddResidualBlock(costFunction, NULL, p, p + 4); //p+4 平移量
+            problem.AddResidualBlock(costFunction, NULL, p12, p12 + 4); //p+4 平移量
+        }
+
+        for (size_t i = 0; i < posePairSize; i++)
+        {
+            // ceres deletes the objects allocated here for the user
+            ceres::CostFunction *costFunction =
+                new ceres::AutoDiffCostFunction<PoseError, 1, 4, 3>(
+                    new PoseError(rvecs3[i], tvecs3[i], rvecs1[i], tvecs1[i]));
+
+            problem.AddResidualBlock(costFunction, NULL, p31, p31 + 4); //p+4 平移量
+        }
+
+        for (size_t i = 0; i < posePairSize; i++)
+        {
+            // ceres deletes the objects allocated here for the user
+            ceres::CostFunction *costFunction =
+                new ceres::AutoDiffCostFunction<PoseError, 1, 4, 3>(
+                    new PoseError(rvecs2[i], tvecs2[i], rvecs3[i], tvecs3[i]));
+
+            problem.AddResidualBlock(costFunction, NULL, p23, p23 + 4); //p+4 平移量
+        }
+
+        // 相乘为I约束
+        for (size_t i = 0; i < posePairSize; i++)
+        {
+            // ceres deletes the objects allocated here for the user
+            ceres::CostFunction *costFunction =
+                new ceres::AutoDiffCostFunction<MultiError, 1, 4, 3, 4, 3, 4, 3>(
+                    new MultiError());
+
+            problem.AddResidualBlock(costFunction, NULL, p12, p12 + 4, p31, p31 + 4, p23, p23 + 4); //p+4 平移量
         }
 
         // ceres deletes the object allocated here for the user
         ceres::LocalParameterization *quaternionParameterization =
             new ceres::QuaternionParameterization;
 
-        problem.SetParameterization(p, quaternionParameterization);
+        problem.SetParameterization(p12, quaternionParameterization);
+        problem.SetParameterization(p31, quaternionParameterization);
+        problem.SetParameterization(p23, quaternionParameterization);
 
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::DENSE_QR;
@@ -555,9 +743,20 @@ namespace camodocal
             std::cout << summary.BriefReport() << std::endl;
         }
 
-        Eigen::Quaterniond q(p[0], p[1], p[2], p[3]);
-        Eigen::Vector3d t;
-        t << p[4], p[5], p[6];
-        dq = DualQuaterniond(q, t);
+        Eigen::Quaterniond q12(p12[0], p12[1], p12[2], p12[3]);
+        Eigen::Vector3d t12;
+        t12 << p12[4], p12[5], p12[6];
+        dq12 = DualQuaterniond(q12, t12);
+
+        Eigen::Quaterniond q31(p31[0], p31[1], p31[2], p31[3]);
+        Eigen::Vector3d t31;
+        t31 << p31[4], p31[5], p31[6];
+        dq31 = DualQuaterniond(q31, t31);
+
+        Eigen::Quaterniond q23(p23[0], p23[1], p23[2], p23[3]);
+        Eigen::Vector3d t23;
+        t23 << p23[4], p23[5], p23[6];
+        dq23 = DualQuaterniond(q23, t23);
     }
+
 }
