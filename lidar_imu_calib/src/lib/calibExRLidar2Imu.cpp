@@ -13,6 +13,10 @@
 #include <stdlib.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/point_cloud.h>
+//for output
+#include <fstream>
+#include <iostream>
+
 #define USE_SCAN_2_MAP true
 
 CalibExRLidarImu::CalibExRLidarImu()
@@ -38,6 +42,11 @@ CalibExRLidarImu::~CalibExRLidarImu()
 void CalibExRLidarImu::setInitExR(Eigen::Vector3d init_R)
 {
     init_R_ = init_R;
+}
+
+void CalibExRLidarImu::setInitT_l_m()
+{
+    T_l_m = Eigen::Matrix4d::Identity();
 }
 
 // 每条消息都要执行一次
@@ -72,7 +81,7 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
         frame.gT = Eigen::Matrix4d::Identity();
         frame.cloud = downed_cloud;
         lidar_buffer_.push_back(move(frame));
-
+        setInitT_l_m();
         return;
     }
 
@@ -86,13 +95,22 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
     register_->setInputSource(downed_cloud);
     register_->setInputTarget(local_map_);
     CloudT::Ptr aligned(new CloudT);
-    register_->align(*aligned);
+    // if (flag[0])
+    // {
+    register_->align(*aligned, T_l_m.cast<float>());
+    // }
+    // else
+    // {
+    // register_->align(*aligned);
+    //     flag[0] = 1;
+    // }
+
     if (!register_->hasConverged())
     {
         cout << "register cant converge, please check initial value !!!" << endl;
         return;
     }
-    Eigen::Matrix4d T_l_m = (register_->getFinalTransformation()).cast<double>();
+    T_l_m = (register_->getFinalTransformation()).cast<double>();
 
     // generate lidar frame
     LidarFrame frame;
@@ -502,13 +520,14 @@ void CalibExRLidarImu::calibLidar2Imu()
 
     // 统一solve
     f_l_i = solve(corres);
-    std::cout << "1--线性求解结果" << std::endl;
+    std::cout << "1---------------------------------线性求解结果" << std::endl;
     printFrame(f_l_i);
+    saveCombinedMap("imu", "1_imu", aligned_lidar_imu_buffer_);
 
-    optimize("imu", aligned_lidar_imu_buffer_);
-    std::cout << "2--optimize结果" << std::endl;
-    printFrame(f_l_i);
-    saveCombinedMap("imu", "optimize_imu", aligned_lidar_imu_buffer_);
+    // optimize("imu", aligned_lidar_imu_buffer_);
+    // std::cout << "2--optimize结果" << std::endl;
+    // printFrame(f_l_i);
+    // saveCombinedMap("imu", "2_imu", aligned_lidar_imu_buffer_);
 
     vector<EigenAffineVector> t = corres2affine(corres);
     EigenAffineVector t1 = t[0];
@@ -518,10 +537,10 @@ void CalibExRLidarImu::calibLidar2Imu()
     auto a_l_i = ceresHandeye.solveCeres(t1, t2, f_l_i.rot, f_l_i.tra);
     f_l_i.rot = Eigen::Quaternion<double>(a_l_i.rotation());
     f_l_i.tra = Eigen::Matrix<double, 3, 1>(a_l_i.translation());
-    std::cout << "3--optimize结果" << std::endl;
+    std::cout << "3-----------------------------------optimize结果" << std::endl;
     std::cout << a_l_i.matrix() << std::endl;
 
-    saveCombinedMap("imu", "ceres_imu", aligned_lidar_imu_buffer_);
+    saveCombinedMap("imu", "3_imu", aligned_lidar_imu_buffer_);
 }
 
 void CalibExRLidarImu::calibLidar2Chassis()
@@ -534,12 +553,12 @@ void CalibExRLidarImu::calibLidar2Chassis()
     f_l_c = solve(corres);
     std::cout << "1--线性求解结果" << std::endl;
     printFrame(f_l_c);
+    saveCombinedMap("chassis", "1_chassis", aligned_lidar_chassis_buffer_);
 
-    optimize("chassis", aligned_lidar_chassis_buffer_);
-    std::cout << "2--optimize结果" << std::endl;
-    printFrame(f_l_c);
-
-    saveCombinedMap("chassis", "optimize_chassis", aligned_lidar_chassis_buffer_);
+    // optimize("chassis", aligned_lidar_chassis_buffer_);
+    // std::cout << "2--optimize结果" << std::endl;
+    // printFrame(f_l_c);
+    // saveCombinedMap("chassis", "2_chassis", aligned_lidar_chassis_buffer_);
 
     vector<EigenAffineVector> t = corres2affine(corres);
     EigenAffineVector t1 = t[0];
@@ -552,7 +571,7 @@ void CalibExRLidarImu::calibLidar2Chassis()
     std::cout << "3--optimize结果" << std::endl;
     std::cout << a_l_c.matrix() << std::endl;
 
-    saveCombinedMap("chassis", "ceres_chassis", aligned_lidar_chassis_buffer_);
+    saveCombinedMap("chassis", "3_chassis", aligned_lidar_chassis_buffer_);
 }
 
 void CalibExRLidarImu::calibMulti()
@@ -565,27 +584,31 @@ void CalibExRLidarImu::calibMulti()
 
     // 获得初值
     f_l_i = solve(corres_li);
-    std::cout << "1--lidar2imu--线性求解结果" << std::endl;
+    std::cout << "1------------------lidar2imu--线性求解结果" << std::endl;
     printFrame(f_l_i);
+    saveCombinedMap("imu", "1_imu", aligned_lidar_imu_buffer_);
+
     // optimize("imu", aligned_lidar_imu_buffer_);
-    // std::cout << "2--lidar2imu--优化结果" << std::endl;
+    // std::cout << "2------------------lidar2imu--优化结果" << std::endl;
     // printFrame(f_l_i);
-    saveCombinedMap("imu","init_imu",aligned_lidar_imu_buffer_);
+    // saveCombinedMap("imu", "2_imu", aligned_lidar_imu_buffer_);
 
     f_l_c = solve(corres_lc);
-    std::cout << "1--lidar2chassis--线性求解结果" << std::endl;
+    std::cout << "1=================lidar2chassis--线性求解结果" << std::endl;
     printFrame(f_l_c);
+    saveCombinedMap("chassis", "1_chassis", aligned_lidar_chassis_buffer_);
+
     // optimize("chassis", aligned_lidar_chassis_buffer_);
-    // std::cout << "2--lidar2chassis--优化结果" << std::endl;
+    // std::cout << "2=================lidar2chassis--优化结果" << std::endl;
     // printFrame(f_l_c);
-    saveCombinedMap("chassis","init_chassis",aligned_lidar_chassis_buffer_);
+    // saveCombinedMap("chassis", "2_chassis", aligned_lidar_chassis_buffer_);
 
     Eigen::Affine3d a12, a31, a23;
     a12 = frame2affine(f_l_i);
     Eigen::Transform<double, 3, Eigen::Affine> a13 = frame2affine(f_l_c);
     a31 = a13.inverse();
     a23 = a12.inverse() * a13;
-    std::cout << "2--imu2chassis--优化结果" << std::endl;
+    std::cout << "imu2chassis--优化结果" << std::endl;
     std::cout << a23.matrix() << std::endl;
 
     std::cout << "---------------------------------------------------------------------------------" << std::endl;
@@ -610,8 +633,8 @@ void CalibExRLidarImu::calibMulti()
     f_l_c.rot = Eigen::Quaternion<double>(a_l_c.rotation());
     f_l_c.tra = Eigen::Matrix<double, 3, 1>(a_l_c.translation());
 
-    saveCombinedMap("imu", "4_imu", aligned_lidar_imu_buffer_);
-    saveCombinedMap("chassis", "4_chassis", aligned_lidar_chassis_buffer_);
+    saveCombinedMap("imu", "3_imu", aligned_lidar_imu_buffer_);
+    saveCombinedMap("chassis", "3_chassis", aligned_lidar_chassis_buffer_);
 }
 
 vector<EigenAffineVector> CalibExRLidarImu::corres2affine(vector<pair<Frame, Frame>> corres)
@@ -752,21 +775,62 @@ void CalibExRLidarImu::printFrame(Frame frame)
     std::cout << a.matrix() << std::endl;
 }
 
+// void CalibExRLidarImu::saveLidarPose()
+// {
+//     ofstream myfile;
+//     myfile.open("/home/xxiao/HitLidarImu/result/poseLidar.txt", ios::app); //pose
+//     myfile.precision(10);
+//     for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
+//     {
+//         LidarFrame lidar = aligned_lidar_imu_buffer_[i].first;
+
+//         myfile << ros::Time().fromSec(lidar.stamp) << " ";
+//         Eigen::VectorXd v(6);
+//         v.head(3) = lidar.gT.topRightCorner<3, 1>();
+//         Eigen::Matrix3d rotationMatrix=lidar.gT.topLeftCorner<3,3>();
+//         double phi = asin(rotationMatrix(2, 0));
+//         double theta = atan2(rotationMatrix(2, 1), rotationMatrix(2, 2));
+//         double psi = atan2(rotationMatrix(1, 0), rotationMatrix(0, 0));
+
+//         Eigen::Vector3d ret;
+//         ret[2] = -theta;
+//         ret[1] = phi;
+//         ret[0] = -psi;
+
+//         v.tail(3) = ret;
+
+//         myfile << lidar.stamp << " " << v[0] << " " << v[1] ;
+//         myfile << " " <<v[2]  << " " << v[3]  << " " << v[4]  << " " << v[5] ;
+//         myfile << "\n";
+//     }
+//     myfile.close();
+// }
+
 void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)
 {
-    std::cout << "combined cloud begin" << sensorName << std::endl;
+    std::cout << "combined cloud begin " << sensorName << std::endl;
     Eigen::Quaterniond q_l_b_ = Eigen::Quaterniond::Identity();
     Eigen::Vector3d t_l_b = {0, 0, 0};
 
+    std::cout << "current transform is " << std::endl;
     if (sensorName == "imu")
     {
         q_l_b_ = f_l_i.rot;
         t_l_b = f_l_i.tra;
+        cout << q_l_b_.x() << endl
+             << endl;
+        cout << q_l_b_.y() << endl
+             << endl;
+        cout << q_l_b_.z() << endl
+             << endl;
+        cout << q_l_b_.w() << endl
+             << endl;
     }
     else if (sensorName == "chassis")
     {
         q_l_b_ = f_l_c.rot;
         t_l_b = f_l_c.tra;
+        printFrame(f_l_c);
     }
 
     CloudT::Ptr combined_map_(new CloudT);
@@ -777,10 +841,10 @@ void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vecto
         auto &aligned1 = aligned_sensor_buffer_[i - 1];
         auto &aligned2 = aligned_sensor_buffer_[i];
 
-        CloudT::Ptr downed_map(new CloudT);
-        downer_.setInputCloud(combined_map_);
-        downer_.filter(*downed_map);
-        combined_map_ = downed_map;
+        // CloudT::Ptr downed_map(new CloudT);
+        // downer_.setInputCloud(combined_map_);
+        // downer_.filter(*downed_map);
+        // combined_map_ = downed_map;
 
         // calculate estimated T_l_m
         Eigen::Matrix3d R_l1_m = aligned1.first.gT.block<3, 3>(0, 0);
@@ -789,18 +853,22 @@ void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vecto
         Eigen::Quaterniond est_q_b2_b1 = q_b1_w.inverse() * q_b2_w;
 
         Eigen::Matrix3d est_R_l2_l1 = Eigen::Matrix3d(q_l_b_.inverse() * est_q_b2_b1 * q_l_b_); // 用imu变化求lidar的变化
+        if (i == 10)
+        {
+            cout << "i=10" << est_R_l2_l1 << endl;
+        }
         Eigen::Matrix3d est_R_l2_m = R_l1_m * est_R_l2_l1;
         Eigen::Matrix4d est_T_l2_m = Eigen::Matrix4d::Identity();
         est_T_l2_m.block<3, 3>(0, 0) = est_R_l2_m;
-        est_T_l2_m.block<3, 1>(0, 3) = aligned2.first.gT.block<3, 1>(0, 3);
-        // est_T_l2_m.block<3, 1>(0, 3) = aligned1.first.gT.block<3, 1>(0, 3) + Eigen::Matrix3d(q_l_b_) * (aligned2.second.tra - aligned1.second.tra);
+        // est_T_l2_m.block<3, 1>(0, 3) = aligned2.first.gT.block<3, 1>(0, 3);
+        est_T_l2_m.block<3, 1>(0, 3) = aligned1.first.gT.block<3, 1>(0, 3) + Eigen::Matrix3d(q_l_b_) * (aligned2.second.tra - aligned1.second.tra);
         // t_l_b - est_R_l2_m * t_l_b + Eigen::Matrix3d(q_l_b_) * (aligned2.second.tra - aligned1.second.tra);
 
         CloudT::Ptr aligned(new CloudT);
         pcl::transformPointCloud(*aligned2.first.cloud, *aligned, est_T_l2_m);
         *combined_map_ += *aligned;
     }
-    std::cout << "transformed" << sensorName << std::endl;
     int ret = pcl::io::savePCDFileBinary("/home/xxiao/HitLidarImu/result/" + fileName + ".pcd", *combined_map_);
-    std::cout << "combined cloud saved" << ret << std::endl;
+    std::cout << "save file---------------------------------------------------" << fileName << std::endl
+              << std::endl;
 }

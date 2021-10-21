@@ -46,7 +46,8 @@ namespace camodocal
             DualQuaternion<T> dq1_ = dq * dq2 * dq.inverse();
 
             DualQuaternion<T> diff = (dq1.inverse() * dq1_).log();
-            residual[0] = diff.real().squaredNorm() + 0.00001 * diff.dual().squaredNorm();
+            // residual[0] = diff.real().squaredNorm() + 0.00001 * diff.dual().squaredNorm();
+            residual[0] = diff.real().squaredNorm();
 
             return true;
         }
@@ -184,8 +185,11 @@ namespace camodocal
         }
 
         // 获得初值
-        DualQuaternion<double> dq(qIn, tIn);
+        // DualQuaternion<double> dq(qIn, tIn);
+        auto dq = estimateHandEyeScrewInitial(T, planarMotion);
 
+
+        mVerbose = true;
         H_12 = dq.toMatrix();
         if (mVerbose)
         {
@@ -360,7 +364,7 @@ namespace camodocal
         Eigen::Matrix4d H = dq.toMatrix();
         double p[7] = {dq.real().w(), dq.real().x(), dq.real().y(), dq.real().z(),
                        H(0, 3), H(1, 3), H(2, 3)};
-        std::cout << "H" << H << std::endl;
+        // std::cout << "H" << H << std::endl;
         // double p[7] = {qIn.w(), qIn.x(), qIn.y(), qIn.z(),
         //                tIn(0, 0), tIn(1, 0), tIn(2, 0)};
         ceres::Solver::Summary summary;

@@ -104,7 +104,7 @@ private:
 
     Eigen::Matrix3d skew(Eigen::Vector3d u);
     //@brief: update relative transform between neighbor lidar frame by aligned imu data
-    void optimize(string sensorName,vector<pair<LidarFrame, SensorFrame>>& aligned_sensor_buffer_);
+    void optimize(string sensorName, vector<pair<LidarFrame, SensorFrame>> &aligned_sensor_buffer_);
 
     //@brief: solve least square answer by constraints
     Frame solve(const vector<pair<Frame, Frame>> &corres);
@@ -118,11 +118,14 @@ private:
     vector<SensorFrame> chassis_buffer_;                                 // record raw chassis datas
     vector<pair<LidarFrame, SensorFrame>> aligned_lidar_imu_buffer_;     // aligned lidar frame and interpolated imu attitude at lidar stamp
     vector<pair<LidarFrame, SensorFrame>> aligned_lidar_chassis_buffer_; // aligned lidar frame and interpolated imu attitude at lidar stamp
+    void setInitT_l_m();
 
     Frame f_l_i;
     Frame f_l_c;
     Eigen::Quaterniond t_l_b_;
     Eigen::Quaterniond t_l_v_; // result
+    Eigen::Matrix4d T_l_m;
+    // Eigen::Vector3d flag{0.0, 0.0, 0.0};
 
     CloudT::Ptr local_map_{nullptr};
     pcl::VoxelGrid<PointT> downer_;                                               // downsample local map
@@ -141,7 +144,9 @@ private:
 
     void printFrame(Frame frame);
 
-    void saveCombinedMap(string sensorName, string fileName,vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
+    // void saveLidarPose();
+
+    void saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
