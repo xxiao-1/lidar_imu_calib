@@ -735,6 +735,8 @@ void CalibExRLidarImu::getAlignedBuffer(vector<SensorFrame> sensor_buffer_, stri
             aligned_lidar_imu_buffer_.push_back(move(pair<LidarFrame, SensorFrame>(lidar_frame, sensor_frame)));
         }
     }
+    std::cout << "mark befor save lidar" << std::endl;
+    saveLidarPose();
 }
 
 vector<pair<Frame, Frame>> CalibExRLidarImu::alignedBuffer2corres(vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)
@@ -775,36 +777,36 @@ void CalibExRLidarImu::printFrame(Frame frame)
     std::cout << a.matrix() << std::endl;
 }
 
-// void CalibExRLidarImu::saveLidarPose()
-// {
-//     ofstream myfile;
-//     myfile.open("/home/xxiao/HitLidarImu/result/poseLidar.txt", ios::app); //pose
-//     myfile.precision(10);
-//     for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
-//     {
-//         LidarFrame lidar = aligned_lidar_imu_buffer_[i].first;
+void CalibExRLidarImu::saveLidarPose()
+{
+    ofstream myfile;
+    myfile.open("/home/xxiao/HitLidarImu/result/poseLidar.txt", ios::app); //pose
+    myfile.precision(10);
+    for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
+    {
+        LidarFrame lidar = aligned_lidar_imu_buffer_[i].first;
 
-//         myfile << ros::Time().fromSec(lidar.stamp) << " ";
-//         Eigen::VectorXd v(6);
-//         v.head(3) = lidar.gT.topRightCorner<3, 1>();
-//         Eigen::Matrix3d rotationMatrix=lidar.gT.topLeftCorner<3,3>();
-//         double phi = asin(rotationMatrix(2, 0));
-//         double theta = atan2(rotationMatrix(2, 1), rotationMatrix(2, 2));
-//         double psi = atan2(rotationMatrix(1, 0), rotationMatrix(0, 0));
+        myfile << ros::Time().fromSec(lidar.stamp) << " ";
+        Eigen::VectorXd v(6);
+        v.head(3) = lidar.gT.topRightCorner<3, 1>();
+        Eigen::Matrix3d rotationMatrix = lidar.gT.topLeftCorner<3, 3>();
+        double phi = asin(rotationMatrix(2, 0));
+        double theta = atan2(rotationMatrix(2, 1), rotationMatrix(2, 2));
+        double psi = atan2(rotationMatrix(1, 0), rotationMatrix(0, 0));
 
-//         Eigen::Vector3d ret;
-//         ret[2] = -theta;
-//         ret[1] = phi;
-//         ret[0] = -psi;
+        Eigen::Vector3d ret;
+        ret[2] = -theta;
+        ret[1] = phi;
+        ret[0] = -psi;
 
-//         v.tail(3) = ret;
+        v.tail(3) = ret;
 
-//         myfile << lidar.stamp << " " << v[0] << " " << v[1] ;
-//         myfile << " " <<v[2]  << " " << v[3]  << " " << v[4]  << " " << v[5] ;
-//         myfile << "\n";
-//     }
-//     myfile.close();
-// }
+        myfile << lidar.stamp << " " << v[0] << " " << v[1];
+        myfile << " " << v[2] << " " << v[3] << " " << v[4] << " " << v[5];
+        myfile << "\n";
+    }
+    myfile.close();
+}
 
 void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)
 {

@@ -144,7 +144,7 @@ private:
 
     void printFrame(Frame frame);
 
-    // void saveLidarPose();
+    void saveLidarPose();
 
     void saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
 
