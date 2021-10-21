@@ -801,7 +801,7 @@ void CalibExRLidarImu::saveLidarPose()
 
         v.tail(3) = ret;
 
-        myfile << lidar.stamp << " " << v[0] << " " << v[1];
+        myfile  << v[0] << " " << v[1];
         myfile << " " << v[2] << " " << v[3] << " " << v[4] << " " << v[5];
         myfile << "\n";
     }
