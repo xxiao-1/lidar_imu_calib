@@ -4,9 +4,9 @@
         <param name="/calib_type" value="lidar2imu"/>   
         <param name="/chassis_topic" value="/chassis_msgs"/>   
         <param name="/lidar_topic" value="/velodyne_points"/>
-        <!-- <param name="/imu_topic" value="/zed2/zed_node/imu/data"/>
-        <param name="/bag_file" value="/home/xxiao/dataset/calib/parkinglot.bag"/> -->
-        <param name="/imu_topic" value="/mti/sensor/imu"/>
-        <param name="/bag_file" value="/home/xxiao/dataset/calib/small.bag"/>
+        <param name="/imu_topic" value="/zed2/zed_node/imu/data"/>
+        <param name="/bag_file" value="/home/xxiao/dataset/calib/parkinglot.bag"/>
+        <!-- <param name="/imu_topic" value="/mti/sensor/imu"/>
+        <param name="/bag_file" value="/home/xxiao/dataset/calib/small.bag"/> -->
     </node>
 </launch>

@@ -789,19 +789,43 @@ void CalibExRLidarImu::saveLidarPose()
         myfile << ros::Time().fromSec(lidar.stamp) << " ";
         Eigen::VectorXd v(6);
         v.head(3) = lidar.gT.topRightCorner<3, 1>();
-        Eigen::Matrix3d rotationMatrix = lidar.gT.topLeftCorner<3, 3>();
-        double phi = asin(rotationMatrix(2, 0));
-        double theta = atan2(rotationMatrix(2, 1), rotationMatrix(2, 2));
-        double psi = atan2(rotationMatrix(1, 0), rotationMatrix(0, 0));
+        // Eigen::Matrix3d t_b_l;
+        // t_b_l << 5.23689e-01, 8.5190979e-01, 0,
+        //         -8.5190979e-01, 5.23689e-01, 0,
+        //           0, 0, 1;
+        // Eigen::Matrix3d rotationMatrix = lidar.gT.topLeftCorner<3, 3>()*(t_b_l.inverse());
 
-        Eigen::Vector3d ret;
-        ret[2] = -theta;
-        ret[1] = phi;
-        ret[0] = -psi;
+        Eigen::Matrix3d C = lidar.gT.topLeftCorner<3, 3>();
+        Eigen::Vector3d p;
+        // Sometimes, because of roundoff error, the value of tr ends up outside
+        // the valid range of arccos. Truncate to the valid range.
+        double tr = std::max(-1.0, std::min((C(0, 0) + C(1, 1) + C(2, 2) - 1.0) * 0.5, 1.0));
+        double a = acos(tr);
 
-        v.tail(3) = ret;
+        if (fabs(a) < 1e-14)
+        {
+            p = Eigen::Vector3d::Zero();
+        }
+        else
+        {
+            p[0] = (C(2, 1) - C(1, 2));
+            p[1] = (C(0, 2) - C(2, 0));
+            p[2] = (C(1, 0) - C(0, 1));
+            double n2 = p.norm();
+            if (fabs(n2) < 1e-14)
+            {
+                p = Eigen::Vector3d::Zero();
+            }
+            else
+            {
+                double scale = -a / n2;
+                p = scale * p;
+            }
+        }
 
-        myfile  << v[0] << " " << v[1];
+        v.tail(3) = p;
+
+        myfile << v[0] << " " << v[1];
         myfile << " " << v[2] << " " << v[3] << " " << v[4] << " " << v[5];
         myfile << "\n";
     }
@@ -819,14 +843,14 @@ void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vecto
     {
         q_l_b_ = f_l_i.rot;
         t_l_b = f_l_i.tra;
-        cout << q_l_b_.x() << endl
-             << endl;
-        cout << q_l_b_.y() << endl
-             << endl;
-        cout << q_l_b_.z() << endl
-             << endl;
-        cout << q_l_b_.w() << endl
-             << endl;
+        // cout << q_l_b_.x() << endl
+        //      << endl;
+        // cout << q_l_b_.y() << endl
+        //      << endl;
+        // cout << q_l_b_.z() << endl
+        //      << endl;
+        // cout << q_l_b_.w() << endl
+        //      << endl;
     }
     else if (sensorName == "chassis")
     {
