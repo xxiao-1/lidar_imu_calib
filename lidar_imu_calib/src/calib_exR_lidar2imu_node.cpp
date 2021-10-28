@@ -138,6 +138,8 @@ int main(int argc, char **argv)
     Eigen::Vector3d last_chassis_angv(0, 0, 0);
     Eigen::Vector3d last_chassis_v(0, 0, 0);
 
+    ofstream myfileIMU;
+    bool saveIMU = true;
     // read data and add data 逐条读取bag内消息
     foreach (rosbag::MessageInstance const m, view)
     {
@@ -189,9 +191,20 @@ int main(int argc, char **argv)
             last_imu_acc = data.acc;
             SensorFrame.rot = data.rot;
             SensorFrame.tra = imu_shift;
-            // std::cout<<"---- imu_shift"<<imu_shift<<std::endl;
 
             caliber.addImuFrame(SensorFrame);
+
+            if (saveIMU)
+            {
+                myfileIMU.open("/home/xxiao/HitLidarImu/result/EEimu.txt", ios::app);
+                myfileIMU.precision(10);
+
+                myfileIMU << imu_msg->header.stamp << " ";
+                myfileIMU << imu_msg->angular_velocity.x << " " <<imu_msg->angular_velocity.y << " " << imu_msg->angular_velocity.z;
+                myfileIMU << "\n";
+
+                myfileIMU.close();
+            }
         }
 
         // add chassis msg
@@ -234,8 +247,8 @@ int main(int argc, char **argv)
         }
     }
 
-    // calib 结果
-    if (calib_type == "lidar2imu")
+        // calib 结果
+        if (calib_type == "lidar2imu")
     {
         caliber.calibLidar2Imu();
     }

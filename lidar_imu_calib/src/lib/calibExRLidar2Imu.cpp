@@ -736,7 +736,9 @@ void CalibExRLidarImu::getAlignedBuffer(vector<SensorFrame> sensor_buffer_, stri
         }
     }
     std::cout << "mark befor save lidar" << std::endl;
-    saveLidarPose();
+    savePoseKalibr();
+    savePoseEE();
+
 }
 
 vector<pair<Frame, Frame>> CalibExRLidarImu::alignedBuffer2corres(vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)
@@ -777,10 +779,11 @@ void CalibExRLidarImu::printFrame(Frame frame)
     std::cout << a.matrix() << std::endl;
 }
 
-void CalibExRLidarImu::saveLidarPose()
+// for kalibr b-spline
+void CalibExRLidarImu::savePoseKalibr()
 {
     ofstream myfile;
-    myfile.open("/home/xxiao/HitLidarImu/result/poseLidar.txt", ios::app); //pose
+    myfile.open("/home/xxiao/HitLidarImu/result/poseLidarKalibr.txt", ios::app); //pose
     myfile.precision(10);
     for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
     {
@@ -832,6 +835,31 @@ void CalibExRLidarImu::saveLidarPose()
     myfile.close();
 }
 
+// for EEHandEye
+void CalibExRLidarImu::savePoseEE()
+{
+    // lidar wheel
+    ofstream myfile;
+    myfile.open("/home/xxiao/HitLidarImu/result/EEposeLidar.txt", ios::app); //pose
+    myfile.precision(10);
+    for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
+    {
+        LidarFrame lidar = aligned_lidar_imu_buffer_[i].first;
+
+        myfile << ros::Time().fromSec(lidar.stamp) << " ";
+        Eigen::VectorXd v(3);
+        v = lidar.gT.topRightCorner<3, 1>();
+
+        Eigen::Matrix3d C = lidar.gT.topLeftCorner<3, 3>();
+        Eigen::Quaterniond q(C);
+
+        myfile << v[0] << " " << v[1];
+        myfile << " " << v[2] << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w();
+        myfile << "\n";
+    }
+    myfile.close();
+}
+
 void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)
 {
     std::cout << "combined cloud begin " << sensorName << std::endl;
@@ -843,14 +871,6 @@ void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vecto
     {
         q_l_b_ = f_l_i.rot;
         t_l_b = f_l_i.tra;
-        // cout << q_l_b_.x() << endl
-        //      << endl;
-        // cout << q_l_b_.y() << endl
-        //      << endl;
-        // cout << q_l_b_.z() << endl
-        //      << endl;
-        // cout << q_l_b_.w() << endl
-        //      << endl;
     }
     else if (sensorName == "chassis")
     {

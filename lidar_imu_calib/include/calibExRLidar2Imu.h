@@ -12,7 +12,6 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/StdVector>
-
 #include "../../ndt_omp/include/pclomp/ndt_omp.h"
 
 using namespace std;
@@ -144,7 +143,9 @@ private:
 
     void printFrame(Frame frame);
 
-    void saveLidarPose();
+    void savePoseKalibr();
+    
+    void savePoseEE();
 
     void saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
 
