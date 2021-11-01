@@ -738,7 +738,6 @@ void CalibExRLidarImu::getAlignedBuffer(vector<SensorFrame> sensor_buffer_, stri
     std::cout << "mark befor save lidar" << std::endl;
     savePoseKalibr();
     savePoseEE();
-
 }
 
 vector<pair<Frame, Frame>> CalibExRLidarImu::alignedBuffer2corres(vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)
@@ -838,9 +837,9 @@ void CalibExRLidarImu::savePoseKalibr()
 // for EEHandEye
 void CalibExRLidarImu::savePoseEE()
 {
-    // lidar wheel
+    // lidar
     ofstream myfile;
-    myfile.open("/home/xxiao/HitLidarImu/result/EEposeLidar.txt", ios::app); //pose
+    myfile.open("/home/xxiao/HitLidarImu/result/poseLidar.txt", ios::app); //pose
     myfile.precision(10);
     for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
     {
@@ -858,6 +857,33 @@ void CalibExRLidarImu::savePoseEE()
         myfile << "\n";
     }
     myfile.close();
+
+    ofstream myfile1;
+    myfile1.open("/home/xxiao/HitLidarImu/result/poseImu.txt", ios::app); //pose
+    myfile1.precision(10);
+    for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
+    {
+        SensorFrame sensor = aligned_lidar_imu_buffer_[i].second;
+
+        myfile1 << ros::Time().fromSec(sensor.stamp) << " ";
+
+        myfile1 << sensor.tra[0] << " " << sensor.tra[1] << " " << sensor.tra[2] << " " << sensor.rot.x() << " " << sensor.rot.y() << " " << sensor.rot.z() << " " << sensor.rot.w() << "\n";
+    }
+    myfile1.close();
+
+
+    ofstream myfile2;
+    myfile2.open("/home/xxiao/HitLidarImu/result/poseWheel.txt", ios::app); //pose
+    myfile2.precision(10);
+    for (int i = 0; i < aligned_lidar_chassis_buffer_.size(); i++)
+    {
+        SensorFrame sensor = aligned_lidar_chassis_buffer_[i].second;
+
+        myfile2 << ros::Time().fromSec(sensor.stamp) << " ";
+
+        myfile2 << sensor.tra[0] << " " << sensor.tra[1] << " " << sensor.tra[2] << " " << sensor.rot.x() << " " << sensor.rot.y() << " " << sensor.rot.z() << " " << sensor.rot.w() << "\n";
+    }
+    myfile2.close();
 }
 
 void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)

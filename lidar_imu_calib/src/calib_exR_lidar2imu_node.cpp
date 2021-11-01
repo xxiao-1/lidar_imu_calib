@@ -140,6 +140,8 @@ int main(int argc, char **argv)
 
     ofstream myfileIMU;
     bool saveIMU = true;
+    ofstream myfileWheel;
+    bool saveWheel = true;
     // read data and add data 逐条读取bag内消息
     foreach (rosbag::MessageInstance const m, view)
     {
@@ -196,11 +198,11 @@ int main(int argc, char **argv)
 
             if (saveIMU)
             {
-                myfileIMU.open("/home/xxiao/HitLidarImu/result/EEimu.txt", ios::app);
+                myfileIMU.open("/home/xxiao/HitLidarImu/result/angvImu.txt", ios::app);
                 myfileIMU.precision(10);
 
                 myfileIMU << imu_msg->header.stamp << " ";
-                myfileIMU << imu_msg->angular_velocity.x << " " <<imu_msg->angular_velocity.y << " " << imu_msg->angular_velocity.z;
+                myfileIMU << imu_msg->angular_velocity.x << " " << imu_msg->angular_velocity.y << " " << imu_msg->angular_velocity.z;
                 myfileIMU << "\n";
 
                 myfileIMU.close();
@@ -209,14 +211,14 @@ int main(int argc, char **argv)
 
         // add chassis msg
         lidar_imu_calib::chassis_data::ConstPtr chassis_msg = m.instantiate<lidar_imu_calib::chassis_data>();
-        if (needChassis && chassis_msg)
+        // if (needChassis && chassis_msg)
+         if (needChassis && chassis_msg)
         {
-            chassis_num++;
-
             ChassisData data;
             data = vehicleDynamicsModel(chassis_msg->header.stamp.toSec(), chassis_msg->Velocity, chassis_msg->SteeringAngle);
             if (chassis_msg->Velocity > 0)
             {
+                chassis_num++;
                 SensorFrame SensorFrame;
                 SensorFrame.stamp = data.stamp;
 
@@ -242,13 +244,25 @@ int main(int argc, char **argv)
                 SensorFrame.rot = chassis_rot;
                 SensorFrame.tra = chassis_shift;
                 caliber.addChassisFrame(SensorFrame);
-                // std::cout << "tra:" << SensorFrame.tra << endl;
+                
+
+                if (saveWheel)
+                {
+                    myfileWheel.open("/home/xxiao/HitLidarImu/result/angvWheel.txt", ios::app);
+                    myfileWheel.precision(10);
+
+                    myfileWheel << chassis_msg->header.stamp << " ";
+                    myfileWheel << data.angVelocity[0] << " " << data.angVelocity[1] << " " << data.angVelocity[2];
+                    myfileWheel << "\n";
+
+                    myfileWheel.close();
+                }
             }
         }
     }
 
-        // calib 结果
-        if (calib_type == "lidar2imu")
+    // calib 结果
+    if (calib_type == "lidar2imu")
     {
         caliber.calibLidar2Imu();
     }
