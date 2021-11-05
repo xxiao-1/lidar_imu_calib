@@ -95,6 +95,14 @@ public:
     //@brief: align chassis odom and imu
     void calibMulti();
 
+    //@brief: align chassis odom and imu
+    void calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2);
+
+    // void calibSimulateMulti();
+    vector<Frame> sensor_buffer_1;
+    vector<Frame> sensor_buffer_2;
+    vector<Frame> sensor_buffer_3;
+
 private:
     //@brief: interpolated attitude from start attitude to end attitude by scale
     Eigen::Quaterniond getInterpolatedAttitude(const Eigen::Quaterniond &q_s_w, const Eigen::Quaterniond &q_e_w, double scale);
@@ -133,7 +141,16 @@ private:
     vector<pair<Frame, Frame>> corres1_;
     vector<pair<Frame, Frame>> corres2_; // 点云优化后
 
+    // vector<pair<Frame, Frame>> corres_12;
+    // vector<pair<Frame, Frame>> corres_13;
+    // vector<pair<Frame, Frame>> corres_23;
+    // Frame f_1_2;
+
+    Frame getDetlaFrame(Frame f1, Frame f2);
+
     vector<EigenAffineVector> corres2affine(vector<pair<Frame, Frame>> corres);
+
+    vector<pair<Frame, Frame>> singleBuffer2corres(vector<Frame> buffer1, vector<Frame> buffer2);
 
     void getAlignedBuffer(vector<SensorFrame> sensor_buffer_, string sensorName);
 
@@ -144,7 +161,7 @@ private:
     void printFrame(Frame frame);
 
     void savePoseKalibr();
-    
+
     void savePoseEE();
 
     void saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);

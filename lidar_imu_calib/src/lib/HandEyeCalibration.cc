@@ -188,13 +188,25 @@ namespace camodocal
         // DualQuaternion<double> dq(qIn, tIn);
         auto dq = estimateHandEyeScrewInitial(T, planarMotion);
 
-
         mVerbose = true;
         H_12 = dq.toMatrix();
         if (mVerbose)
         {
             std::cout << "# INFO: Before refinement: H_12 = " << std::endl;
             std::cout << H_12 << std::endl;
+
+            // 12
+            Eigen::Matrix3d gt_M12;
+            gt_M12 << 0.82708958, -0.5569211, 0.07590595, -0.28123537, -0.52697488, -0.80200009, 0.4866513, 0.64197848, -0.59248134;
+            // 13
+            Eigen::Matrix3d gt_M13;
+            gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
+            // 23
+            Eigen::Matrix3d gt_M23;
+            gt_M23 = gt_M12.inverse() * gt_M13;
+            Eigen::Quaterniond gt(gt_M23);
+            double angle_distance_1 = 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation()));
+            std::cout << "角度差为：" << angle_distance_1 << std::endl;
         }
 
         estimateHandEyeScrewRefine(dq, rvecs1, tvecs1, rvecs2, tvecs2, qIn, tIn);
@@ -452,18 +464,7 @@ namespace camodocal
                 r_tmp[3] = 0;
                 Eigen::Vector4d c_tmp = fiducialInFirstFiducialBase.matrix().col(3);
                 c_tmp[3] = 0;
-
-                // std::cerr
-                //     << "L2Norm EE: "
-                //     << robotTipinFirstTipBase.matrix().block(0, 3, 3, 1).norm()
-                //     << " vs Cam:"
-                //     << fiducialInFirstFiducialBase.matrix().block(0, 3, 3, 1).norm()
-                //     << std::endl;
             }
-            // std::cerr << "EE transform: \n"
-            //           << eigenEE.matrix() << std::endl;
-            // std::cerr << "Cam transform: \n"
-            //           << eigenCam.matrix() << std::endl;
         }
 
         camodocal::HandEyeCalibration calib;
@@ -472,37 +473,6 @@ namespace camodocal
                                    result, false);
 
         Eigen::Transform<double, 3, Eigen::Affine> resultAffine(result);
-
-        // std::cerr << "Result from "
-        //           << "EETFname"
-        //           << " to "
-        //           << "ARTagTFname"
-        //           << ":\n"
-        //           << result << std::endl;
-
-        // std::cerr << "Translation (x,y,z) : "
-        //           << resultAffine.translation().transpose() << std::endl;
-        // Eigen::Quaternion<double> quaternionResult(resultAffine.rotation());
-        // std::stringstream ss;
-        // ss << quaternionResult.w() << ", " << quaternionResult.x() << ", "
-        //    << quaternionResult.y() << ", " << quaternionResult.z() << std::endl;
-        // std::cerr << "Rotation (w,x,y,z): " << ss.str() << std::endl;
-
-        // std::cerr << "Result from "
-        //           << "ARTagTFname"
-        //           << " to "
-        //           << "EETFname"
-        //           << ":\n"
-        //           << result << std::endl;
-        // Eigen::Transform<double, 3, Eigen::Affine> resultAffineInv =
-        //     resultAffine.inverse();
-        // std::cerr << "Inverted translation (x,y,z) : "
-        //           << resultAffineInv.translation().transpose() << std::endl;
-        // quaternionResult = Eigen::Quaternion<double>(resultAffineInv.rotation());
-        // ss.clear();
-        // ss << quaternionResult.w() << " " << quaternionResult.x() << " "
-        //    << quaternionResult.y() << " " << quaternionResult.z() << std::endl;
-        // std::cerr << "Inverted rotation (w,x,y,z): " << ss.str() << std::endl;
         return resultAffine;
     }
 
@@ -538,24 +508,6 @@ namespace camodocal
             rvecs3.push_back(eigenRotToEigenVector3dAngleAxis(
                 deltaChassis.rotation()));
             tvecs3.push_back(deltaChassis.translation());
-
-            // ROS_INFO("lidar imu chassis Calibration Transform Pairs Added");
-
-            // std::cerr
-            //     << "L2Norm Lidar: "
-            //     << deltaLidar.matrix().block(0, 3, 3, 1).norm()
-            //     << " vs Imu:"
-            //     << deltaImu.matrix().block(0, 3, 3, 1).norm()
-            //     << " vs Chassis:"
-            //     << deltaChassis.matrix().block(0, 3, 3, 1).norm()
-            //     << std::endl;
-
-            // std::cerr << "Lidar transform: \n"
-            //           << eigenLidar.matrix() << std::endl;
-            // std::cerr << "Imu transform: \n"
-            //           << eigenImu.matrix() << std::endl;
-            // std::cerr << "Chassis transform: \n"
-            //           << eigenChassis.matrix() << std::endl;
         }
 
         camodocal::HandEyeCalibration calib;

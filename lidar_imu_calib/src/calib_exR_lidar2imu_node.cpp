@@ -9,6 +9,10 @@
 #include <time.h>
 #include "calibExRLidar2Imu.h"
 #include "lidar_imu_calib/chassis_data.h"
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <cstdlib>
 
 #include <boost/foreach.hpp>
 #define foreach BOOST_FOREACH
@@ -63,6 +67,92 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "calib_exR_lidar2imu_node");
     ros::NodeHandle nh, pnh("~");
 
+    string data_type;
+    if (!pnh.getParam("data_type", data_type))
+    {
+        cout << "please config param: data_type simulate or not  !!!" << endl;
+        return 0;
+    }
+    string simulate_type;
+    if (!pnh.getParam("simulate_type", simulate_type))
+    {
+        cout << "please config param: simulate_type double or multi  !!!" << endl;
+        return 0;
+    }
+    vector<string> fileNames(3);
+    pnh.getParam("file_name1", fileNames[0]);
+    pnh.getParam("file_name2", fileNames[1]);
+    pnh.getParam("file_name3", fileNames[2]);
+
+    // initialize caliber
+    CalibExRLidarImu caliber;
+
+    // simulate data------------------------------------------------------------------
+    if (data_type == "simulate")
+    {
+        // read new data
+        for (int i = 0; i < 3; i++)
+        {
+            string fileName = fileNames[i];
+
+            ifstream infile;
+            infile.open(fileName);
+            // std::cout << fileName << std::endl;
+            string sline;
+            while (getline(infile, sline))
+            {
+                stringstream ss(sline);
+                string buf;
+                Frame sensor;
+                Eigen::Vector4d rot;
+                int j = 0;
+                // cout<<ss<<endl;
+                while (ss >> buf)
+                {
+                    if (j <= 3 && j > 0)
+                    {
+                        sensor.tra[j - 1] = atof(buf.c_str());
+                    }
+                    else if (j >= 4 && j <= 7)
+                    {
+                        rot[j - 4] = atof(buf.c_str());
+                    }
+                    j++;
+                }
+                sensor.rot = Eigen::Quaterniond(rot);
+                if (i == 0)
+                {
+                    // initialize caliber
+                    caliber.sensor_buffer_1.push_back(sensor);
+                }
+                else if (i == 1)
+                {
+                    caliber.sensor_buffer_2.push_back(sensor);
+                }
+                else
+                {
+                    caliber.sensor_buffer_3.push_back(sensor);
+                }
+            }
+            infile.close();
+        } // end read
+
+        // check read
+        // cout << caliber.sensor_buffer_1.size() << "  " << caliber.sensor_buffer_2.size() << " " << caliber.sensor_buffer_3.size() << endl;
+        if(simulate_type=="multi"){
+            // caliber.calibSimulateMulti();
+        }else if(simulate_type=="double"){
+            // caliber.calibSimulateDouble(caliber.sensor_buffer_1,caliber.sensor_buffer_2);
+            // caliber.calibSimulateDouble(caliber.sensor_buffer_1,caliber.sensor_buffer_3);
+            caliber.calibSimulateDouble(caliber.sensor_buffer_2,caliber.sensor_buffer_3);
+        }
+        //
+
+        return 0;
+    } // simulate
+
+    // real data----------------------------------------------------------------------
+
     // read calib type
     string calib_type;
     if (!pnh.getParam("calib_type", calib_type))
@@ -102,9 +192,6 @@ int main(int argc, char **argv)
         cout << "please config param: lidar_topic, imu_topic ,chassis_topic !!!" << endl;
         return 0;
     }
-
-    // initialize caliber
-    CalibExRLidarImu caliber;
 
     // get local param
     string bag_file;
@@ -212,11 +299,11 @@ int main(int argc, char **argv)
         // add chassis msg
         lidar_imu_calib::chassis_data::ConstPtr chassis_msg = m.instantiate<lidar_imu_calib::chassis_data>();
         // if (needChassis && chassis_msg)
-         if (needChassis && chassis_msg)
+        if (needChassis && chassis_msg)
         {
             ChassisData data;
             data = vehicleDynamicsModel(chassis_msg->header.stamp.toSec(), chassis_msg->Velocity, chassis_msg->SteeringAngle);
-            if (chassis_msg->Velocity > 0)
+            if (chassis_msg->Velocity != 0 && chassis_msg->Velocity != -0)
             {
                 chassis_num++;
                 SensorFrame SensorFrame;
@@ -244,7 +331,6 @@ int main(int argc, char **argv)
                 SensorFrame.rot = chassis_rot;
                 SensorFrame.tra = chassis_shift;
                 caliber.addChassisFrame(SensorFrame);
-                
 
                 if (saveWheel)
                 {

@@ -8,5 +8,12 @@
         <param name="/bag_file" value="/home/xxiao/dataset/calib/parkinglot.bag"/>
         <!-- <param name="/imu_topic" value="/mti/sensor/imu"/>
         <param name="/bag_file" value="/home/xxiao/dataset/calib/small.bag"/> -->
+        <!--simulate/real-->
+        <param name="/data_type" value="simulate"/>
+        <!--double/multi-->
+        <param name="/simulate_type" value="double"/>
+        <param name="/file_name1" value="/home/xxiao/dataset/calib/simulate/ex/1.txt"/>
+        <param name="/file_name2" value="/home/xxiao/dataset/calib/simulate/ex/2.txt"/>
+        <param name="/file_name3" value="/home/xxiao/dataset/calib/simulate/ex/3.txt"/>
     </node>
 </launch>

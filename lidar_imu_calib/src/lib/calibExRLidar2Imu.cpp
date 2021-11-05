@@ -64,7 +64,6 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
         return;
     }
 
-#if USE_SCAN_2_MAP
     //downsample lidar cloud for save align time
     CloudT::Ptr downed_cloud(new CloudT);
     downer_.setInputCloud(data.cloud);
@@ -123,50 +122,6 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
 
     // update local map
     *local_map_ += *aligned; // 最后再加入地图中
-#else
-    // init first lidar frame and set it as zero pose
-    if (!last_lidar_cloud_)
-    {
-        last_lidar_cloud_.reset(new CloudT);
-        last_lidar_cloud_ = data.cloud;
-
-        LidarFrame frame;
-        frame.stamp = data.stamp;
-        frame.T = Eigen::Matrix4d::Identity();
-        frame.gT = Eigen::Matrix4d::Identity();
-        lidar_buffer_.push_back(move(frame));
-
-        return;
-    }
-
-    // get transform between neighbor frames
-    register_->setInputSource(data.cloud_);
-    register_->setInputTarget(last_lidar_cloud);
-    CloudT::Ptr aligned(new CloudT);
-    register_->align(*aligned);
-
-    if (!register_->hasConverged())
-    {
-        cout << "register cant converge, please check initial value !!!" << endl;
-        return;
-    }
-    Eigen::Matrix4d result_T = (register_->getFinalTransformation()).cast<double>();
-
-    // generate lidar frame
-    LidarFrame frame;
-    frame.stamp = data.stamp;
-    frame.T = result_T;
-    Eigen::Matrix4d temp1 = lidar_buffer_.back().gT;
-    Eigen::Matrix4d temp2 = result_T;
-    frame.gT = temp1 * temp2; // 绝对位姿
-    lidar_buffer_.push_back(move(frame));
-
-    // debug
-    // CloudT::Ptr g_cloud(new CloudT);
-    // pcl::transformPointCloud(*(data.cloud), *g_cloud, lidar_buffer_.back().gT.cast<float>());
-    // string pcd_file = "/home/cn/temp/" + to_string(lidar_buffer_.size()) + ".pcd";
-    // pcl::io::savePCDFile(pcd_file, *g_cloud);
-#endif
 }
 // 不能求delta是因为还没有和lidar时间对齐，要先插值，再求delta
 void CalibExRLidarImu::addImuFrame(const SensorFrame &data)
@@ -772,6 +727,67 @@ vector<pair<Frame, Frame>> CalibExRLidarImu::alignedBuffer2corres(vector<pair<Li
     return corres;
 }
 
+Frame CalibExRLidarImu::getDetlaFrame(Frame f1, Frame f2)
+{
+    Frame frame;
+    Eigen::Quaterniond q_1 = f1.rot;
+    Eigen::Quaterniond q_2 = f2.rot;
+    Eigen::Quaterniond q_2_1 = q_1.inverse() * q_2;
+
+    frame.rot = q_2_1;
+    frame.tra = f2.tra - f1.tra;
+    return frame;
+}
+
+vector<pair<Frame, Frame>> CalibExRLidarImu::singleBuffer2corres(vector<Frame> buffer1, vector<Frame> buffer2)
+{
+    // solve initial transform between lidar and sensor
+    vector<pair<Frame, Frame>> corres(0);
+    assert(buffer1.size() == buffer2.size());
+    int length = buffer1.size();
+    for (int i = 1; i < length; i++)
+    {
+        Frame frame1 = getDetlaFrame(buffer1[i], buffer1[i + 1]);
+        Frame frame2 = getDetlaFrame(buffer2[i], buffer2[i + 1]);
+        corres.push_back(move(pair<Frame, Frame>(frame1, frame2)));
+    }
+    return corres;
+}
+void CalibExRLidarImu::calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2)
+{
+    // 12
+    Eigen::Matrix3d gt_M12;
+    gt_M12 << 0.82708958, -0.5569211, 0.07590595, -0.28123537, -0.52697488, -0.80200009, 0.4866513, 0.64197848, -0.59248134;
+    // 13
+    Eigen::Matrix3d gt_M13;
+    gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
+    // 23
+    Eigen::Matrix3d gt_M23;
+    gt_M23 = gt_M12.inverse() * gt_M13;
+    Eigen::Quaterniond gt(gt_M23);
+
+    vector<pair<Frame, Frame>> corres_12 = singleBuffer2corres(buffer1, buffer2);
+    Frame f_1_2 = solve(corres_12);
+    double angle_distance_0 = 180.0 / M_PI * gt.angularDistance(f_1_2.rot);
+    std::cout << "线性求解结果:" << std::endl;
+    printFrame(f_1_2);
+    cout << "角度差为：" << angle_distance_0 << endl;
+
+    vector<EigenAffineVector> t = corres2affine(corres_12);
+    EigenAffineVector t1 = t[0];
+    EigenAffineVector t2 = t[1];
+
+    camodocal::HandEyeCalibration ceresHandeye;
+    auto a_1_2 = ceresHandeye.solveCeres(t1, t2, f_1_2.rot, f_1_2.tra);
+
+    double angle_distance_1 = 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(a_1_2.rotation()));
+    // f_1_2.rot = Eigen::Quaternion<double>(a_1_2.rotation());
+    // f_1_2.tra = Eigen::Matrix<double, 3, 1>(a_1_2.translation());
+    std::cout << "ceres非线性优化结果" << std::endl;
+    std::cout << a_1_2.matrix() << std::endl;
+    cout << "角度差为：" << angle_distance_1 << endl;
+}
+
 void CalibExRLidarImu::printFrame(Frame frame)
 {
     Eigen::Affine3d a = frame2affine(frame);
@@ -870,7 +886,6 @@ void CalibExRLidarImu::savePoseEE()
         myfile1 << sensor.tra[0] << " " << sensor.tra[1] << " " << sensor.tra[2] << " " << sensor.rot.x() << " " << sensor.rot.y() << " " << sensor.rot.z() << " " << sensor.rot.w() << "\n";
     }
     myfile1.close();
-
 
     ofstream myfile2;
     myfile2.open("/home/xxiao/HitLidarImu/result/poseWheel.txt", ios::app); //pose
