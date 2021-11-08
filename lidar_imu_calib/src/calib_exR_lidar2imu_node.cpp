@@ -141,12 +141,12 @@ int main(int argc, char **argv)
             }
             infile.close();
         } // end read
-        std::cout<<"sensor size:" << caliber.sensor_buffer_1.size() << " " << caliber.sensor_buffer_2.size() << " " << caliber.sensor_buffer_3.size() << std::endl;
+        std::cout << "sensor size:" << caliber.sensor_buffer_1.size() << " " << caliber.sensor_buffer_2.size() << " " << caliber.sensor_buffer_3.size() << std::endl;
         // check read
         // cout << caliber.sensor_buffer_1.size() << "  " << caliber.sensor_buffer_2.size() << " " << caliber.sensor_buffer_3.size() << endl;
         if (simulate_type == "multi")
         {
-            caliber.calibSimulateMulti(caliber.sensor_buffer_1, caliber.sensor_buffer_2, caliber.sensor_buffer_2);
+            caliber.calibSimulateMulti(caliber.sensor_buffer_1, caliber.sensor_buffer_2, caliber.sensor_buffer_3);
         }
         else if (simulate_type == "double")
         {
@@ -158,10 +158,12 @@ int main(int argc, char **argv)
 
             std::cout << "1-2:" << std::endl;
             caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_2, Eigen::Quaterniond(gt_M12));
-            std::cout << "-------------------------------------------------" << std::endl;
+
+            std::cout << "----------------------------------------------------------------------------------------------------------------" << std::endl;
             std::cout << "1-3:" << std::endl;
             caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M13));
-            std::cout << "-------------------------------------------------" << std::endl;
+
+            std::cout << "----------------------------------------------------------------------------------------------------------------" << std::endl;
             std::cout << "2-3:" << std::endl;
             caliber.calibSimulateDouble(caliber.sensor_buffer_2, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M23));
         }

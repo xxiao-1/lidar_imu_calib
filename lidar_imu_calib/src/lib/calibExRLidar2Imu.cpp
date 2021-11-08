@@ -745,7 +745,7 @@ vector<pair<Frame, Frame>> CalibExRLidarImu::singleBuffer2corres(vector<Frame> b
     vector<pair<Frame, Frame>> corres(0);
     assert(buffer1.size() == buffer2.size());
     int length = buffer1.size();
-    for (int i = 1; i < length; i++)
+    for (int i = 1; i < length-1; i++)
     {
         Frame frame1 = getDetlaFrame(buffer1[i], buffer1[i + 1]);
         Frame frame2 = getDetlaFrame(buffer2[i], buffer2[i + 1]);
