@@ -749,45 +749,60 @@ vector<pair<Frame, Frame>> CalibExRLidarImu::singleBuffer2corres(vector<Frame> b
     {
         Frame frame1 = getDetlaFrame(buffer1[i], buffer1[i + 1]);
         Frame frame2 = getDetlaFrame(buffer2[i], buffer2[i + 1]);
-        corres.push_back(move(pair<Frame, Frame>(frame1, frame2)));
+        corres.push_back(pair<Frame, Frame>(frame1, frame2));
     }
     return corres;
 }
-void CalibExRLidarImu::calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2)
+void CalibExRLidarImu::calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2, Eigen::Quaterniond gt)
 {
-    // 12
-    Eigen::Matrix3d gt_M12;
-    gt_M12 << 0.82708958, -0.5569211, 0.07590595, -0.28123537, -0.52697488, -0.80200009, 0.4866513, 0.64197848, -0.59248134;
-    // 13
-    Eigen::Matrix3d gt_M13;
-    gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
-    // 23
-    Eigen::Matrix3d gt_M23;
-    gt_M23 = gt_M12.inverse() * gt_M13;
-    Eigen::Quaterniond gt(gt_M23);
 
+    //线性求解
     vector<pair<Frame, Frame>> corres_12 = singleBuffer2corres(buffer1, buffer2);
     Frame f_1_2 = solve(corres_12);
-    double angle_distance_0 = 180.0 / M_PI * gt.angularDistance(f_1_2.rot);
+
     std::cout << "线性求解结果:" << std::endl;
     printFrame(f_1_2);
-    cout << "角度差为：" << angle_distance_0 << endl;
+    cout << "角度差为：" << 180.0 / M_PI * gt.angularDistance(f_1_2.rot) << endl;
 
+    // 非线性 先估计初值，然后再优化
     vector<EigenAffineVector> t = corres2affine(corres_12);
     EigenAffineVector t1 = t[0];
     EigenAffineVector t2 = t[1];
 
     camodocal::HandEyeCalibration ceresHandeye;
-    auto a_1_2 = ceresHandeye.solveCeres(t1, t2, f_1_2.rot, f_1_2.tra);
+    auto a_1_2 = ceresHandeye.solveCeres(t1, t2, f_1_2.rot, f_1_2.tra, gt);
 
-    double angle_distance_1 = 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(a_1_2.rotation()));
     // f_1_2.rot = Eigen::Quaternion<double>(a_1_2.rotation());
     // f_1_2.tra = Eigen::Matrix<double, 3, 1>(a_1_2.translation());
-    std::cout << "ceres非线性优化结果" << std::endl;
-    std::cout << a_1_2.matrix() << std::endl;
-    cout << "角度差为：" << angle_distance_1 << endl;
-}
 
+    // std::cout << "ceres非线性优化结果" << std::endl;
+    // std::cout << a_1_2.matrix() << std::endl;
+    // cout << "角度差为：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(a_1_2.rotation())) << endl;
+}
+void CalibExRLidarImu::calibSimulateMulti(vector<Frame> buffer1, vector<Frame> buffer2, vector<Frame> buffer3)
+{
+    vector<pair<Frame, Frame>> corres_12 = singleBuffer2corres(buffer1, buffer2);
+    vector<pair<Frame, Frame>> corres_13 = singleBuffer2corres(buffer1, buffer3);
+    vector<EigenAffineVector> t_12 = corres2affine(corres_12);
+    vector<EigenAffineVector> t_13 = corres2affine(corres_13);
+    EigenAffineVector t1 = t_12[0];
+    EigenAffineVector t2 = t_12[1];
+    EigenAffineVector t3 = t_13[1];
+
+    assert(corres_12.size() == corres_13.size());
+
+    camodocal::HandEyeCalibration ceresHandeye;
+    Eigen::Affine3d a12, a31, a23;
+    std::vector<Eigen::Affine3d> aList = ceresHandeye.solveMultiCeres(t1, t2, t3, a12, a31, a23);
+
+    // Eigen::Affine3d a_l_i = aList[0];
+    // f_l_i.rot = Eigen::Quaternion<double>(a_l_i.rotation());
+    // f_l_i.tra = Eigen::Matrix<double, 3, 1>(a_l_i.translation());
+
+    // Eigen::Affine3d a_l_c = aList[1].inverse();
+    // f_l_c.rot = Eigen::Quaternion<double>(a_l_c.rotation());
+    // f_l_c.tra = Eigen::Matrix<double, 3, 1>(a_l_c.translation());
+}
 void CalibExRLidarImu::printFrame(Frame frame)
 {
     Eigen::Affine3d a = frame2affine(frame);

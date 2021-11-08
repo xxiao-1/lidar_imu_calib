@@ -86,7 +86,12 @@ int main(int argc, char **argv)
 
     // initialize caliber
     CalibExRLidarImu caliber;
-
+    caliber.sensor_buffer_1.clear();
+    caliber.sensor_buffer_2.clear();
+    caliber.sensor_buffer_3.clear();
+    assert(caliber.sensor_buffer_1.size() == 0);
+    assert(caliber.sensor_buffer_2.size() == 0);
+    assert(caliber.sensor_buffer_3.size() == 0);
     // simulate data------------------------------------------------------------------
     if (data_type == "simulate")
     {
@@ -97,7 +102,7 @@ int main(int argc, char **argv)
 
             ifstream infile;
             infile.open(fileName);
-            // std::cout << fileName << std::endl;
+
             string sline;
             while (getline(infile, sline))
             {
@@ -136,15 +141,29 @@ int main(int argc, char **argv)
             }
             infile.close();
         } // end read
-
+        std::cout<<"sensor size:" << caliber.sensor_buffer_1.size() << " " << caliber.sensor_buffer_2.size() << " " << caliber.sensor_buffer_3.size() << std::endl;
         // check read
         // cout << caliber.sensor_buffer_1.size() << "  " << caliber.sensor_buffer_2.size() << " " << caliber.sensor_buffer_3.size() << endl;
-        if(simulate_type=="multi"){
-            // caliber.calibSimulateMulti();
-        }else if(simulate_type=="double"){
-            // caliber.calibSimulateDouble(caliber.sensor_buffer_1,caliber.sensor_buffer_2);
-            // caliber.calibSimulateDouble(caliber.sensor_buffer_1,caliber.sensor_buffer_3);
-            caliber.calibSimulateDouble(caliber.sensor_buffer_2,caliber.sensor_buffer_3);
+        if (simulate_type == "multi")
+        {
+            caliber.calibSimulateMulti(caliber.sensor_buffer_1, caliber.sensor_buffer_2, caliber.sensor_buffer_2);
+        }
+        else if (simulate_type == "double")
+        {
+            // 真值
+            Eigen::Matrix3d gt_M12, gt_M13, gt_M23;
+            gt_M12 << 0.82708958, -0.5569211, 0.07590595, -0.28123537, -0.52697488, -0.80200009, 0.4866513, 0.64197848, -0.59248134;
+            gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
+            gt_M23 = gt_M12.inverse() * gt_M13;
+
+            std::cout << "1-2:" << std::endl;
+            caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_2, Eigen::Quaterniond(gt_M12));
+            std::cout << "-------------------------------------------------" << std::endl;
+            std::cout << "1-3:" << std::endl;
+            caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M13));
+            std::cout << "-------------------------------------------------" << std::endl;
+            std::cout << "2-3:" << std::endl;
+            caliber.calibSimulateDouble(caliber.sensor_buffer_2, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M23));
         }
         //
 

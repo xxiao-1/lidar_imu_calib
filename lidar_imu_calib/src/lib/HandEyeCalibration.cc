@@ -163,11 +163,14 @@ namespace camodocal
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
         const Eigen::Quaterniond qIn, const Eigen::MatrixXd tIn,
-        Eigen::Matrix4d &H_12, bool planarMotion)
+        Eigen::Matrix4d &H_12, bool planarMotion, const Eigen::Quaterniond gt)
     {
         int motionCount = rvecs1.size();
         Eigen::MatrixXd T(motionCount * 6, 8);
         T.setZero();
+
+        std::cout << "真值四元数为" << std::endl
+                  << gt.toRotationMatrix() << std::endl;
 
         for (size_t i = 0; i < motionCount; ++i)
         {
@@ -195,18 +198,7 @@ namespace camodocal
             std::cout << "# INFO: Before refinement: H_12 = " << std::endl;
             std::cout << H_12 << std::endl;
 
-            // 12
-            Eigen::Matrix3d gt_M12;
-            gt_M12 << 0.82708958, -0.5569211, 0.07590595, -0.28123537, -0.52697488, -0.80200009, 0.4866513, 0.64197848, -0.59248134;
-            // 13
-            Eigen::Matrix3d gt_M13;
-            gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
-            // 23
-            Eigen::Matrix3d gt_M23;
-            gt_M23 = gt_M12.inverse() * gt_M13;
-            Eigen::Quaterniond gt(gt_M23);
-            double angle_distance_1 = 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation()));
-            std::cout << "角度差为：" << angle_distance_1 << std::endl;
+            std::cout << "角度差为：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation())) << std::endl;
         }
 
         estimateHandEyeScrewRefine(dq, rvecs1, tvecs1, rvecs2, tvecs2, qIn, tIn);
@@ -216,6 +208,7 @@ namespace camodocal
         {
             std::cout << "# INFO: After refinement: H_12 = " << std::endl;
             std::cout << H_12 << std::endl;
+            std::cout << "角度差为**：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation())) << std::endl;
         }
     }
 
@@ -406,9 +399,10 @@ namespace camodocal
         // ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
 
-        if (mVerbose)
+        if (true)
         {
             std::cout << summary.BriefReport() << std::endl;
+            // std::cout<<"==================================="<<std::endl;
         }
 
         Eigen::Quaterniond q(p[0], p[1], p[2], p[3]);
@@ -418,7 +412,7 @@ namespace camodocal
         dq = DualQuaterniond(qn, t);
     }
 
-    Eigen::Affine3d HandEyeCalibration::solveCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const Eigen::Quaterniond q, const Eigen::MatrixXd t)
+    Eigen::Affine3d HandEyeCalibration::solveCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const Eigen::Quaterniond q, const Eigen::MatrixXd t, const Eigen::Quaterniond gt)
     {
 
         // camera 2 ee = t2 2 t1
@@ -470,7 +464,7 @@ namespace camodocal
         camodocal::HandEyeCalibration calib;
         Eigen::Matrix4d result;
         calib.estimateHandEyeScrew(rvecsArm, tvecsArm, rvecsFiducial, tvecsFiducial, q, t,
-                                   result, false);
+                                   result, false, gt);
 
         Eigen::Transform<double, 3, Eigen::Affine> resultAffine(result);
         return resultAffine;
@@ -487,7 +481,7 @@ namespace camodocal
 
         eigenVector tvecs1, rvecs1, tvecs2, rvecs2, tvecs3, rvecs3;
 
-        for (int i = 0; i < t1.size(); ++i, ++t1_it, ++t2_it)
+        for (int i = 0; i < t1.size(); ++i, ++t1_it, ++t2_it,++t3_it)
         {
             auto &eigenLidar = *t1_it;
             auto &eigenImu = *t2_it;
@@ -508,12 +502,23 @@ namespace camodocal
             rvecs3.push_back(eigenRotToEigenVector3dAngleAxis(
                 deltaChassis.rotation()));
             tvecs3.push_back(deltaChassis.translation());
+            // diff
+            if (i >= 10 && i < 14)
+            {
+                std::cout << i << "--" << deltaImu.rotation() << "--" << deltaChassis.rotation() << std::endl;
+            }
+        }
+        //diff
+        std::cout << "-----------1-----------" << std::endl;
+        for (int i = 10; i < 14; i++)
+        {
+            std::cout << i << "--" << rvecs2[i] << "=" << rvecs3[i] << std::endl;
         }
 
         camodocal::HandEyeCalibration calib;
         Eigen::Matrix4d result1, result2, result3;
 
-        calib.estimateMultiHandEyeScrew(rvecs1, tvecs2, rvecs1, tvecs2, rvecs1, tvecs2, a1, a2, a3,
+        calib.estimateMultiHandEyeScrew(rvecs1, tvecs1, rvecs2, tvecs2, rvecs3, tvecs3, a1, a2, a3,
                                         result1, result2, result3, false);
 
         std::cerr << "Result from "
@@ -562,6 +567,38 @@ namespace camodocal
         std::cerr << "Rotation (w,x,y,z): " << ss.str() << std::endl;
     }
 
+    Eigen::MatrixXd HandEyeCalibration::getInitHandEye(
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs1,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2)
+    {
+        int motionCount = rvecs1.size();
+        Eigen::MatrixXd T(motionCount * 6, 8);
+        T.setZero();
+
+        for (size_t i = 0; i < motionCount; ++i)
+        {
+            const Eigen::Vector3d &rvec1 = rvecs1.at(i);
+            const Eigen::Vector3d &tvec1 = tvecs1.at(i);
+            const Eigen::Vector3d &rvec2 = rvecs2.at(i);
+            const Eigen::Vector3d &tvec2 = tvecs2.at(i);
+
+            // Skip cases with zero rotation
+            if (rvec1.norm() == 0 || rvec2.norm() == 0)
+                continue;
+
+            T.block<6, 8>(i * 6, 0) =
+                AxisAngleToSTransposeBlockOfT(rvec1, tvec1, rvec2, tvec2);
+        }
+        // std::cout<<"-----------------------"<<std::endl<<T<<std::endl;
+        return T;
+    }
+
     void HandEyeCalibration::estimateMultiHandEyeScrew(
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
@@ -578,30 +615,75 @@ namespace camodocal
         const Eigen::Affine3d a12, const Eigen::Affine3d a31, const Eigen::Affine3d a23,
         Eigen::Matrix4d &H_12, Eigen::Matrix4d &H_31, Eigen::Matrix4d &H_23, bool planarMotion)
     {
-        DualQuaternion<double> dq12(Eigen::Quaternion<double>(a12.rotation()), Eigen::Matrix<double, 3, 1>(a12.translation()));
-        DualQuaternion<double> dq31(Eigen::Quaternion<double>(a31.rotation()), Eigen::Matrix<double, 3, 1>(a31.translation()));
-        DualQuaternion<double> dq23(Eigen::Quaternion<double>(a23.rotation()), Eigen::Matrix<double, 3, 1>(a23.translation()));
+        // 真值
+        // 12
+        Eigen::Matrix3d gt_M12;
+        gt_M12 << 0.82708958, -0.5569211, 0.07590595, -0.28123537, -0.52697488, -0.80200009, 0.4866513, 0.64197848, -0.59248134;
+        // 13
+        Eigen::Matrix3d gt_M13;
+        gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
+        // 23
+        Eigen::Matrix3d gt_M23;
+        gt_M23 = gt_M12.inverse() * gt_M13;
+        Eigen::Quaterniond gt12(gt_M12);
+        Eigen::Quaterniond gt13(gt_M13);
+        Eigen::Quaterniond gt23(gt_M23);
+
+        // 使用线性初值
+        // DualQuaternion<double> dq12(Eigen::Quaternion<double>(a12.rotation()), Eigen::Matrix<double, 3, 1>(a12.translation()));
+        // DualQuaternion<double> dq31(Eigen::Quaternion<double>(a31.rotation()), Eigen::Matrix<double, 3, 1>(a31.translation()));
+        // DualQuaternion<double> dq23(Eigen::Quaternion<double>(a23.rotation()), Eigen::Matrix<double, 3, 1>(a23.translation()));
+
+        // DualQuaternion估计初值
+        auto T12 = getInitHandEye(rvecs1, tvecs1, rvecs2, tvecs2);
+        // auto T31 = getInitHandEye(rvecs3, tvecs3, rvecs1, tvecs1);
+        // auto T23 = getInitHandEye(rvecs2, tvecs2, rvecs3, tvecs3);
+
+        auto T31 = getInitHandEye(rvecs1, tvecs1, rvecs3, tvecs3);
+
+        // for(int i=10;i<14;i++){
+        //     std::cout<<i<<"--"<<rvecs2[i]<<"="<<rvecs3[i]<<std::endl;
+        // }
+
+        auto dq12 = estimateHandEyeScrewInitial(T12, planarMotion);
+        auto dq31 = estimateHandEyeScrewInitial(T31, planarMotion);
+        // auto dq23 = estimateHandEyeScrewInitial(T23, planarMotion);
 
         H_12 = dq12.toMatrix();
         H_31 = dq31.toMatrix();
-        H_23 = dq23.toMatrix();
+        // H_23 = dq23.toMatrix();
+
         std::cout << "# INFO: Before refinement: H_12 = " << std::endl;
         std::cout << H_12 << std::endl;
         std::cout << "# INFO: Before refinement: H_31 = " << std::endl;
         std::cout << H_31 << std::endl;
-        std::cout << "# INFO: Before refinement: H_23 = " << std::endl;
-        std::cout << H_23 << std::endl;
+        // std::cout << "# INFO: Before refinement: H_23 = " << std::endl;
+        // std::cout << H_23 << std::endl;
 
-        estimateMultiHandEyeScrewRefine(rvecs1, tvecs1, rvecs2, tvecs2, rvecs3, tvecs3, dq12, dq31, dq23);
+        double angle_distance_12 = 180.0 / M_PI * gt12.angularDistance(Eigen::Quaternion<double>(dq12.rotation()));
+        double angle_distance_13 = 180.0 / M_PI * gt12.angularDistance(Eigen::Quaternion<double>(dq31.rotation()));
+        // double angle_distance_23 = 180.0 / M_PI * gt23.angularDistance(Eigen::Quaternion<double>(dq23.rotation()));
 
-        H_12 = dq12.toMatrix();
-        H_31 = dq31.toMatrix();
-        H_23 = dq23.toMatrix();
-        if (mVerbose)
-        {
-            std::cout << "# INFO: After refinement: H_12 = " << std::endl;
-            std::cout << H_12 << std::endl;
-        }
+        std::cout << "----非线性初值---------------- " << std::endl;
+        std::cout << angle_distance_12 << std::endl;
+        std::cout << angle_distance_13 << std::endl;
+        // std::cout<< angle_distance_23 << std::endl;
+
+        // 优化
+        // estimateMultiHandEyeScrewRefine(rvecs1, tvecs1, rvecs2, tvecs2, rvecs3, tvecs3, dq12, dq31, dq23);
+
+        // H_12 = dq12.toMatrix();
+        // H_31 = dq31.toMatrix();
+        // H_23 = dq23.toMatrix();
+        // double angle_distance_12a = 180.0 / M_PI * gt12.angularDistance(Eigen::Quaternion<double>(dq12.rotation()));
+        // double angle_distance_13a = 180.0 / M_PI * gt13.angularDistance(Eigen::Quaternion<double>(dq31.rotation()).inverse());
+        // double angle_distance_23a = 180.0 / M_PI * gt23.angularDistance(Eigen::Quaternion<double>(dq23.rotation()));
+        // std::cout << "result is " << angle_distance_12a << " " << angle_distance_13a << " " << angle_distance_23a << std::endl;
+        // if (mVerbose)
+        // {
+        //     std::cout << "# INFO: After refinement: H_12 = " << std::endl;
+        //     std::cout << H_12 << std::endl;
+        // }
     }
 
     // ceres优化

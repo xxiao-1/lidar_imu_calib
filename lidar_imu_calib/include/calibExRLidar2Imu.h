@@ -95,8 +95,11 @@ public:
     //@brief: align chassis odom and imu
     void calibMulti();
 
-    //@brief: align chassis odom and imu
-    void calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2);
+    //@brief: simulate double
+    void calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2,Eigen::Quaterniond gt);
+    
+    //@brief: simulate multi sensors
+    void calibSimulateMulti(vector<Frame> buffer1, vector<Frame> buffer2, vector<Frame> buffer3);
 
     // void calibSimulateMulti();
     vector<Frame> sensor_buffer_1;
@@ -140,11 +143,6 @@ private:
 
     vector<pair<Frame, Frame>> corres1_;
     vector<pair<Frame, Frame>> corres2_; // 点云优化后
-
-    // vector<pair<Frame, Frame>> corres_12;
-    // vector<pair<Frame, Frame>> corres_13;
-    // vector<pair<Frame, Frame>> corres_23;
-    // Frame f_1_2;
 
     Frame getDetlaFrame(Frame f1, Frame f2);
 

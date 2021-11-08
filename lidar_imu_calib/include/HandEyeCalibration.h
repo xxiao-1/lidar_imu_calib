@@ -19,7 +19,6 @@ Eigen::Vector3d eigenRotToEigenVector3dAngleAxis(Input eigenQuat)
   return ax3d.angle() * ax3d.axis();
 }
 
-
 namespace camodocal
 {
 
@@ -88,7 +87,7 @@ namespace camodocal
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
         const Eigen::Quaterniond q, const Eigen::MatrixXd t,
-        Eigen::Matrix4d &H_12, bool planarMotion = false);
+        Eigen::Matrix4d &H_12, bool planarMotion = false,const Eigen::Quaterniond gt = Eigen::Quaterniond::Identity());
 
     static void estimateMultiHandEyeScrew(
         const std::vector<Eigen::Vector3d,
@@ -108,10 +107,21 @@ namespace camodocal
 
     static void setVerbose(bool on = true);
 
-    Eigen::Affine3d solveCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const Eigen::Quaterniond q, const Eigen::MatrixXd t);
+    static Eigen::MatrixXd getInitHandEye(
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs1,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs2,
+        const std::vector<Eigen::Vector3d,
+                          Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2);
+
+    Eigen::Affine3d solveCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const Eigen::Quaterniond q, const Eigen::MatrixXd t,
+                               const Eigen::Quaterniond gt = Eigen::Quaterniond::Identity());
 
     std::vector<Eigen::Affine3d> solveMultiCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const EigenAffineVector &t3,
-                         const Eigen::Affine3d a1, const Eigen::Affine3d a2, const Eigen::Affine3d a3);
+                                                 const Eigen::Affine3d a1, const Eigen::Affine3d a2, const Eigen::Affine3d a3);
 
   private:
     /// @brief solve ax^2 + bx + c = 0

@@ -11,7 +11,7 @@
         <!--simulate/real-->
         <param name="/data_type" value="simulate"/>
         <!--double/multi-->
-        <param name="/simulate_type" value="double"/>
+        <param name="/simulate_type" value="multi"/>
         <param name="/file_name1" value="/home/xxiao/dataset/calib/simulate/ex/1.txt"/>
         <param name="/file_name2" value="/home/xxiao/dataset/calib/simulate/ex/2.txt"/>
         <param name="/file_name3" value="/home/xxiao/dataset/calib/simulate/ex/3.txt"/>
