@@ -92,6 +92,9 @@ int main(int argc, char **argv)
     assert(caliber.sensor_buffer_1.size() == 0);
     assert(caliber.sensor_buffer_2.size() == 0);
     assert(caliber.sensor_buffer_3.size() == 0);
+    // Eigen::Vector3d time_factor(0.5, 0.2, 1);
+    //   Eigen::Vector3d time_factor(0.5, 0.5, 0.5);  
+    Eigen::Vector3d time_factor(1, 1, 1);
     // simulate data------------------------------------------------------------------
     if (data_type == "simulate")
     {
@@ -99,6 +102,11 @@ int main(int argc, char **argv)
         for (int i = 0; i < 3; i++)
         {
             string fileName = fileNames[i];
+            Eigen::Vector3d old_tras;
+            Eigen::Quaterniond old_rot;
+            Eigen::Vector3d cur_tras;
+            Eigen::Quaterniond cur_rot;
+            bool isFirstLine = true;
 
             ifstream infile;
             infile.open(fileName);
@@ -108,15 +116,16 @@ int main(int argc, char **argv)
             {
                 stringstream ss(sline);
                 string buf;
-                Frame sensor;
+
                 Eigen::Vector4d rot;
+
+                // parse the line
                 int j = 0;
-                // cout<<ss<<endl;
                 while (ss >> buf)
                 {
                     if (j <= 3 && j > 0)
                     {
-                        sensor.tra[j - 1] = atof(buf.c_str());
+                        cur_tras[j - 1] = atof(buf.c_str());
                     }
                     else if (j >= 4 && j <= 7)
                     {
@@ -124,19 +133,36 @@ int main(int argc, char **argv)
                     }
                     j++;
                 }
-                sensor.rot = Eigen::Quaterniond(rot);
-                if (i == 0)
+                cur_rot = Eigen::Quaterniond(rot);
+
+                if (isFirstLine)
                 {
-                    // initialize caliber
-                    caliber.sensor_buffer_1.push_back(sensor);
-                }
-                else if (i == 1)
-                {
-                    caliber.sensor_buffer_2.push_back(sensor);
+                    old_rot = cur_rot;
+                    old_tras = cur_tras;
+                    isFirstLine = false;
+                    continue;
                 }
                 else
                 {
-                    caliber.sensor_buffer_3.push_back(sensor);
+                    Frame sensor;
+                    sensor.rot = caliber.getInterpolatedAttitude(old_rot, cur_rot, time_factor[i]);
+                    sensor.tra = caliber.getInterpolatedTranslation(old_tras, cur_tras, time_factor[i]);
+
+                    old_rot = cur_rot;
+                    old_tras = cur_tras;
+                    // save
+                    if (i == 0)
+                    {
+                        caliber.sensor_buffer_1.push_back(sensor);
+                    }
+                    else if (i == 1)
+                    {
+                        caliber.sensor_buffer_2.push_back(sensor);
+                    }
+                    else
+                    {
+                        caliber.sensor_buffer_3.push_back(sensor);
+                    }
                 }
             }
             infile.close();
@@ -156,16 +182,21 @@ int main(int argc, char **argv)
             gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
             gt_M23 = gt_M12.inverse() * gt_M13;
 
+            Eigen::Vector3d t12(0.51410915, 0.38709595, 0.92142013);
+            Eigen::Vector3d t13(0.20966865, 0.41898404, 0.0902146);
+            Eigen::Vector3d t23;
+            t23 = t13 - t12;
+
             std::cout << "1-2:" << std::endl;
-            caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_2, Eigen::Quaterniond(gt_M12));
+            caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_2, Eigen::Quaterniond(gt_M12), t12);
 
             std::cout << "----------------------------------------------------------------------------------------------------------------" << std::endl;
             std::cout << "1-3:" << std::endl;
-            caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M13));
+            caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M13), t13);
 
             std::cout << "----------------------------------------------------------------------------------------------------------------" << std::endl;
             std::cout << "2-3:" << std::endl;
-            caliber.calibSimulateDouble(caliber.sensor_buffer_2, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M23));
+            caliber.calibSimulateDouble(caliber.sensor_buffer_2, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M23), t23);
         }
         //
 

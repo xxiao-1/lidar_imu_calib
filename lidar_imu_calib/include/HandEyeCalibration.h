@@ -87,7 +87,7 @@ namespace camodocal
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2,
         const Eigen::Quaterniond q, const Eigen::MatrixXd t,
-        Eigen::Matrix4d &H_12, bool planarMotion = false,const Eigen::Quaterniond gt = Eigen::Quaterniond::Identity());
+        Eigen::Matrix4d &H_12, bool planarMotion = false, const Eigen::Quaterniond gt = Eigen::Quaterniond::Identity(), const Eigen::Vector3d gtT = Eigen::Vector3d(0, 0, 0));
 
     static void estimateMultiHandEyeScrew(
         const std::vector<Eigen::Vector3d,
@@ -118,7 +118,7 @@ namespace camodocal
                           Eigen::aligned_allocator<Eigen::Vector3d>> &tvecs2);
 
     Eigen::Affine3d solveCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const Eigen::Quaterniond q, const Eigen::MatrixXd t,
-                               const Eigen::Quaterniond gt = Eigen::Quaterniond::Identity());
+                               const Eigen::Quaterniond gt = Eigen::Quaterniond::Identity(), const Eigen::Vector3d gtT = Eigen::Vector3d(0, 0, 0));
 
     std::vector<Eigen::Affine3d> solveMultiCeres(const EigenAffineVector &t1, const EigenAffineVector &t2, const EigenAffineVector &t3,
                                                  const Eigen::Affine3d a1, const Eigen::Affine3d a2, const Eigen::Affine3d a3);

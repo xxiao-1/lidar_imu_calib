@@ -96,8 +96,8 @@ public:
     void calibMulti();
 
     //@brief: simulate double
-    void calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2,Eigen::Quaterniond gt);
-    
+    void calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2, Eigen::Quaterniond gt, Eigen::Vector3d t);
+
     //@brief: simulate multi sensors
     void calibSimulateMulti(vector<Frame> buffer1, vector<Frame> buffer2, vector<Frame> buffer3);
 
@@ -106,12 +106,12 @@ public:
     vector<Frame> sensor_buffer_2;
     vector<Frame> sensor_buffer_3;
 
-private:
     //@brief: interpolated attitude from start attitude to end attitude by scale
     Eigen::Quaterniond getInterpolatedAttitude(const Eigen::Quaterniond &q_s_w, const Eigen::Quaterniond &q_e_w, double scale);
 
     Eigen::Vector3d getInterpolatedTranslation(const Eigen::Vector3d &t_s_w, const Eigen::Vector3d &t_e_w, double scale);
 
+private:
     Eigen::Matrix3d skew(Eigen::Vector3d u);
     //@brief: update relative transform between neighbor lidar frame by aligned imu data
     void optimize(string sensorName, vector<pair<LidarFrame, SensorFrame>> &aligned_sensor_buffer_);

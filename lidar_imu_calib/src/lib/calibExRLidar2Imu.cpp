@@ -745,7 +745,7 @@ vector<pair<Frame, Frame>> CalibExRLidarImu::singleBuffer2corres(vector<Frame> b
     vector<pair<Frame, Frame>> corres(0);
     assert(buffer1.size() == buffer2.size());
     int length = buffer1.size();
-    for (int i = 1; i < length-1; i++)
+    for (int i = 1; i < length - 1; i++)
     {
         Frame frame1 = getDetlaFrame(buffer1[i], buffer1[i + 1]);
         Frame frame2 = getDetlaFrame(buffer2[i], buffer2[i + 1]);
@@ -753,7 +753,7 @@ vector<pair<Frame, Frame>> CalibExRLidarImu::singleBuffer2corres(vector<Frame> b
     }
     return corres;
 }
-void CalibExRLidarImu::calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2, Eigen::Quaterniond gt)
+void CalibExRLidarImu::calibSimulateDouble(vector<Frame> buffer1, vector<Frame> buffer2, Eigen::Quaterniond gt,Eigen::Vector3d gtT)
 {
 
     //线性求解
@@ -763,6 +763,7 @@ void CalibExRLidarImu::calibSimulateDouble(vector<Frame> buffer1, vector<Frame> 
     std::cout << "线性求解结果:" << std::endl;
     printFrame(f_1_2);
     cout << "角度差为：" << 180.0 / M_PI * gt.angularDistance(f_1_2.rot) << endl;
+    cout << "位移差为" << (f_1_2.tra-gtT).norm() << endl;
 
     // 非线性 先估计初值，然后再优化
     vector<EigenAffineVector> t = corres2affine(corres_12);
@@ -770,7 +771,7 @@ void CalibExRLidarImu::calibSimulateDouble(vector<Frame> buffer1, vector<Frame> 
     EigenAffineVector t2 = t[1];
 
     camodocal::HandEyeCalibration ceresHandeye;
-    auto a_1_2 = ceresHandeye.solveCeres(t1, t2, f_1_2.rot, f_1_2.tra, gt);
+    auto a_1_2 = ceresHandeye.solveCeres(t1, t2, f_1_2.rot, f_1_2.tra, gt,gtT);
 
     // f_1_2.rot = Eigen::Quaternion<double>(a_1_2.rotation());
     // f_1_2.tra = Eigen::Matrix<double, 3, 1>(a_1_2.translation());
