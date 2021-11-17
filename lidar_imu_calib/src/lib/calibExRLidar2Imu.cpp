@@ -743,6 +743,7 @@ vector<pair<Frame, Frame>> CalibExRLidarImu::singleBuffer2corres(vector<Frame> b
 {
     // solve initial transform between lidar and sensor
     vector<pair<Frame, Frame>> corres(0);
+    std::cout<<buffer1.size()<<" "<<buffer2.size()<<std::endl;
     assert(buffer1.size() == buffer2.size());
     int length = buffer1.size();
     for (int i = 1; i < length - 1; i++)

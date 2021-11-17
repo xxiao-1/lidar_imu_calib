@@ -12,8 +12,8 @@
         <param name="/data_type" value="simulate"/>
         <!--double/multi-->
         <param name="/simulate_type" value="double"/>
-        <param name="/file_name1" value="/home/xxiao/dataset/calib/simulate/ex_0.0005/1.txt"/>
-        <param name="/file_name2" value="/home/xxiao/dataset/calib/simulate/ex_0.0005/2.txt"/>
-        <param name="/file_name3" value="/home/xxiao/dataset/calib/simulate/ex_0.0005/3.txt"/>
+        <param name="/file_name1" value="/home/xxiao/dataset/calib/simulate/ex_0.0005time/1.txt"/>
+        <param name="/file_name2" value="/home/xxiao/dataset/calib/simulate/ex_0.0005time/2.txt"/>
+        <param name="/file_name3" value="/home/xxiao/dataset/calib/simulate/ex_0.0005time/3.txt"/>
     </node>
 </launch>

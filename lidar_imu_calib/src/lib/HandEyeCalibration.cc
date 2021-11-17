@@ -19,11 +19,11 @@ namespace camodocal
 
     /// @todo there may be an alignment issue, see
     /// http://eigen.tuxfamily.org/dox/group__TopicStructHavingEigenMembers.html
-    class PoseError
+    class PoseErrorR
     {
     public:
-        PoseError(Eigen::Vector3d r1, Eigen::Vector3d t1, Eigen::Vector3d r2,
-                  Eigen::Vector3d t2)
+        PoseErrorR(Eigen::Vector3d r1, Eigen::Vector3d t1, Eigen::Vector3d r2,
+                   Eigen::Vector3d t2)
             : m_rvec1(r1), m_rvec2(r2), m_tvec1(t1), m_tvec2(t2) {}
 
         template <typename T>
@@ -46,8 +46,8 @@ namespace camodocal
             DualQuaternion<T> dq1_ = dq * dq2 * dq.inverse();
 
             DualQuaternion<T> diff = (dq1.inverse() * dq1_).log();
-            std::cout << diff.real().squaredNorm() << std::endl;
-            // residual[0] = diff.real().squaredNorm() + 0.0002 * diff.dual().squaredNorm();
+            // std::cout << diff.real().squaredNorm() << std::endl;
+            residual[0] = diff.real().squaredNorm() + 0.0002 * diff.dual().squaredNorm();
             // residual[0] = diff.real().squaredNorm();
 
             return true;
@@ -62,10 +62,54 @@ namespace camodocal
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     };
 
-    class MultiError
+    class PoseErrorT
     {
     public:
-        MultiError() {}
+        PoseErrorT(Eigen::Vector3d r1, Eigen::Vector3d t1, Eigen::Vector3d r2,
+                   Eigen::Vector3d t2, Eigen::Vector4d q41)
+            : m_rvec1(r1), m_rvec2(r2), m_tvec1(t1), m_tvec2(t2), q41(q41) {}
+
+        template <typename T>
+        bool operator()(const T *const t3x1,
+                        T *residual) const
+        {
+            Eigen::Quaternion<T> q(q41.cast<T>());
+            Eigen::Matrix<T, 3, 1> t;
+            t << t3x1[0], t3x1[1], t3x1[2];
+
+            DualQuaternion<T> dq(q, t);
+
+            Eigen::Matrix<T, 3, 1> r1 = m_rvec1.cast<T>();
+            Eigen::Matrix<T, 3, 1> t1 = m_tvec1.cast<T>();
+            Eigen::Matrix<T, 3, 1> r2 = m_rvec2.cast<T>();
+            Eigen::Matrix<T, 3, 1> t2 = m_tvec2.cast<T>();
+
+            DualQuaternion<T> dq1(AngleAxisToQuaternion<T>(r1), t1);
+            DualQuaternion<T> dq2(AngleAxisToQuaternion<T>(r2), t2);
+            DualQuaternion<T> dq1_ = dq * dq2 * dq.inverse();
+
+            DualQuaternion<T> diff = (dq1.inverse() * dq1_).log();
+            // std::cout << diff.real().squaredNorm() << std::endl;
+            // residual[0] = diff.real().squaredNorm() + 0.0002 * diff.dual().squaredNorm();
+            residual[0] = diff.dual().squaredNorm();
+
+            return true;
+        }
+
+    private:
+        Eigen::Vector3d m_rvec1, m_rvec2, m_tvec1, m_tvec2;
+        Eigen::Vector4d q41;
+
+    public:
+        /// @see
+        /// http://eigen.tuxfamily.org/dox/group__TopicStructHavingEigenMembers.html
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    };
+
+    class MultiErrorR
+    {
+    public:
+        MultiErrorR() {}
 
         template <typename T>
         bool operator()(const T *const q12_4x1, const T *const t12_3x1, const T *const q31_4x1, const T *const t31_3x1, const T *const q23_4x1, const T *const t23_3x1,
@@ -90,18 +134,55 @@ namespace camodocal
             DualQuaternion<T> dq23(q23, t23);
 
             DualQuaternion<T> diff = (dq12 * dq23 * dq31).log();
-            // residual[0] = diff.real().squaredNorm() + diff.dual().squaredNorm();
-            // std::cout<<"平方根"<<diff.real().squaredNorm()<<std::endl;
-            //  Eigen::Quaterniond q(1,0,0,0);
-            //  Eigen::Quaternion<T> qq=q12*q23*q31;
-            //  std::cout<<"角度差"<<180/3.14*q.angularDistance(qq)<<std::endl;
 
-            // residual[0] = (diff.real().squaredNorm());
-            residual[0] = 0.00001 * (diff.real().squaredNorm());
-            // residual[0] = 0.0001 * ((diff.real().squaredNorm()) + 0.0002 * diff.dual().squaredNorm());
+            residual[0] = 0.01 * (diff.real().squaredNorm());
 
             return true;
         }
+
+    public:
+        /// @see
+        /// http://eigen.tuxfamily.org/dox/group__TopicStructHavingEigenMembers.html
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    };
+
+    class MultiErrorT
+    {
+    public:
+        MultiErrorT(Eigen::Vector4d q_12, Eigen::Vector4d q_31, Eigen::Vector4d q_23)
+            : q12_(q_12), q31_(q_31), q23_(q_23) {}
+
+        template <typename T>
+        bool operator()(const T *const t12_3x1, const T *const t31_3x1, const T *const t23_3x1,
+                        T *residual) const
+        {
+            Eigen::Quaternion<T> q12(q12_.cast<T>());
+            Eigen::Matrix<T, 3, 1> t12;
+            t12 << t12_3x1[0], t12_3x1[1], t12_3x1[2];
+
+            DualQuaternion<T> dq12(q12, t12);
+
+            Eigen::Quaternion<T> q31(q31_.cast<T>());
+            Eigen::Matrix<T, 3, 1> t31;
+            t31 << t31_3x1[0], t31_3x1[1], t31_3x1[2];
+
+            DualQuaternion<T> dq31(q31, t31);
+
+            Eigen::Quaternion<T> q23(q23_.cast<T>());
+            Eigen::Matrix<T, 3, 1> t23;
+            t23 << t23_3x1[0], t23_3x1[1], t23_3x1[2];
+
+            DualQuaternion<T> dq23(q23, t23);
+
+            DualQuaternion<T> diff = (dq12 * dq23 * dq31).log();
+
+            residual[0] = 0.01 * (diff.dual().squaredNorm());
+
+            return true;
+        }
+
+    private:
+        Eigen::Vector4d q12_, q31_, q23_;
 
     public:
         /// @see
@@ -185,15 +266,10 @@ namespace camodocal
 
         for (size_t i = 0; i < motionCount; ++i)
         {
-            // const Eigen::Vector3d &rvec1 = rvecs1.at(i);
-            // const Eigen::Vector3d &tvec1 = tvecs1.at(i);
-            // const Eigen::Vector3d &rvec2 = rvecs2.at(i);
-            // const Eigen::Vector3d &tvec2 = tvecs2.at(i);
-
-            const Eigen::Vector3d rvec1 = rvecs1.at(i);
-            const Eigen::Vector3d tvec1 = tvecs1.at(i);
-            const Eigen::Vector3d rvec2 = rvecs2.at(i);
-            const Eigen::Vector3d tvec2 = tvecs2.at(i);
+            const Eigen::Vector3d &rvec1 = rvecs1.at(i);
+            const Eigen::Vector3d &tvec1 = tvecs1.at(i);
+            const Eigen::Vector3d &rvec2 = rvecs2.at(i);
+            const Eigen::Vector3d &tvec2 = tvecs2.at(i);
 
             // Skip cases with zero rotation
             if (rvec1.norm() == 0 || rvec2.norm() == 0)
@@ -405,16 +481,16 @@ namespace camodocal
         // std::cout << "H" << H << std::endl;
         // double p[7] = {qIn.w(), qIn.x(), qIn.y(), qIn.z(),
         //                tIn(0, 0), tIn(1, 0), tIn(2, 0)};
-        ceres::Solver::Summary summary;
 
+        // for R
+        ceres::Solver::Summary summary;
         ceres::Problem problem;
         for (size_t i = 0; i < rvecs1.size(); i++)
-        // for (size_t i = 0; i < 10; i++)
         {
             // ceres deletes the objects allocated here for the user
             ceres::CostFunction *costFunction =
-                new ceres::AutoDiffCostFunction<PoseError, 1, 4, 3>(
-                    new PoseError(rvecs1[i], tvecs1[i], rvecs2[i], tvecs2[i]));
+                new ceres::AutoDiffCostFunction<PoseErrorR, 1, 4, 3>(
+                    new PoseErrorR(rvecs1[i], tvecs1[i], rvecs2[i], tvecs2[i]));
 
             problem.AddResidualBlock(costFunction, NULL, p, p + 4); //p+4 平移量
         }
@@ -439,10 +515,48 @@ namespace camodocal
             // std::cout<<"==================================="<<std::endl;
         }
 
+        // for T
+
+        ceres::Solver::Summary summaryT;
+        ceres::Problem problemT;
+        Eigen::Vector4d q41(p[1], p[2], p[3], p[0]);
+        double tT[3] = {p[4], p[5], p[6]};
+
+        for (size_t i = 0; i < rvecs1.size(); i++)
+        {
+            // ceres deletes the objects allocated here for the user
+            ceres::CostFunction *costFunctionT =
+                new ceres::AutoDiffCostFunction<PoseErrorT, 1, 4>(
+                    new PoseErrorT(rvecs1[i], tvecs1[i], rvecs2[i], tvecs2[i], q41));
+
+            problemT.AddResidualBlock(costFunctionT, NULL, tT); //p+4 平移量
+        }
+
+        // ceres deletes the object allocated here for the user
+        ceres::LocalParameterization *quaternionParameterizationT =
+            new ceres::QuaternionParameterization;
+
+        problemT.SetParameterization(tT, quaternionParameterizationT);
+
+        ceres::Solver::Options optionsT;
+        optionsT.linear_solver_type = ceres::DENSE_QR;
+        optionsT.jacobi_scaling = true;
+        optionsT.max_num_iterations = 100;
+
+        // ceres::Solver::Summary summary;
+        ceres::Solve(optionsT, &problemT, &summaryT);
+
+        if (true)
+        {
+            std::cout << summaryT.BriefReport() << std::endl;
+            std::cout << "===================================" << std::endl;
+        }
+
         Eigen::Quaterniond q(p[0], p[1], p[2], p[3]);
         Eigen::Quaterniond qn = q.normalized();
         Eigen::Vector3d t;
-        t << p[4], p[5], p[6];
+        // t << p[4], p[5], p[6];
+        t << tT[0], tT[1], tT[2];
         dq = DualQuaterniond(qn, t);
     }
 
@@ -724,13 +838,12 @@ namespace camodocal
             std::cout << H_23 << std::endl;
         }
         Eigen::Matrix4d m31, m12, m23;
-        m12 << 0.828717, -0.554515, 0.0757702, -1.19534,
-            -0.280721, -0.528967, -0.800868, 0.25203,
-            0.484173, 0.642422, -0.594028, 1.58466,
-            0, 0, 0, 1;
-        m31 << -0.569483, 0.629318, 0.528818, -1.47246,
-            0.587198, 0.761644, -0.274039, 0.808738,
-            -0.575228, 0.154461, -0.803277, 0.0995241,
+        m12 << 0.828039, -0.555699, 0.0744953, -12.8185, -0.283604, -0.529751, -0.799333, -8.54153, 0.483652, 0.640752, -0.596253, 40.3456, 0, 0, 0, 1;
+
+        m31 << -0.751071,
+            0.53234, 0.39052, -600.332,
+            0.431421, 0.843471, -0.32005, 64.4336,
+            -0.499768, -0.0719016, -0.86317, 183.743,
             0, 0, 0, 1;
         m23 = m12.inverse() * m31.inverse();
         std::cout << "角度差23推导 " << std::endl;
@@ -776,8 +889,8 @@ namespace camodocal
         {
             // ceres deletes the objects allocated here for the user
             ceres::CostFunction *costFunction =
-                new ceres::AutoDiffCostFunction<PoseError, 1, 4, 3>(
-                    new PoseError(rvecs3[i], tvecs3[i], rvecs1[i], tvecs1[i]));
+                new ceres::AutoDiffCostFunction<PoseErrorR, 1, 4, 3>(
+                    new PoseErrorR(rvecs3[i], tvecs3[i], rvecs1[i], tvecs1[i]));
 
             problem.AddResidualBlock(costFunction, NULL, p31, p31 + 4); //p+4 平移量
         }
@@ -786,8 +899,8 @@ namespace camodocal
         {
             // ceres deletes the objects allocated here for the user
             ceres::CostFunction *costFunction =
-                new ceres::AutoDiffCostFunction<PoseError, 1, 4, 3>(
-                    new PoseError(rvecs1[i], tvecs1[i], rvecs2[i], tvecs2[i]));
+                new ceres::AutoDiffCostFunction<PoseErrorR, 1, 4, 3>(
+                    new PoseErrorR(rvecs1[i], tvecs1[i], rvecs2[i], tvecs2[i]));
 
             problem.AddResidualBlock(costFunction, NULL, p12, p12 + 4); //p+4 平移量
         }
@@ -796,8 +909,8 @@ namespace camodocal
         {
             // ceres deletes the objects allocated here for the user
             ceres::CostFunction *costFunction =
-                new ceres::AutoDiffCostFunction<PoseError, 1, 4, 3>(
-                    new PoseError(rvecs2[i], tvecs2[i], rvecs3[i], tvecs3[i]));
+                new ceres::AutoDiffCostFunction<PoseErrorR, 1, 4, 3>(
+                    new PoseErrorR(rvecs2[i], tvecs2[i], rvecs3[i], tvecs3[i]));
 
             problem.AddResidualBlock(costFunction, NULL, p23, p23 + 4); //p+4 平移量
         }
@@ -807,8 +920,8 @@ namespace camodocal
         {
             // ceres deletes the objects allocated here for the user
             ceres::CostFunction *costFunction =
-                new ceres::AutoDiffCostFunction<MultiError, 1, 4, 3, 4, 3, 4, 3>(
-                    new MultiError());
+                new ceres::AutoDiffCostFunction<MultiErrorR, 1, 4, 3, 4, 3, 4, 3>(
+                    new MultiErrorR());
 
             problem.AddResidualBlock(costFunction, NULL, p12, p12 + 4, p31, p31 + 4, p23, p23 + 4); //p+4 平移量
         }
@@ -828,25 +941,102 @@ namespace camodocal
 
         // ceres::Solver::Summary summary;
         ceres::Solve(options, &problem, &summary);
-
         if (mVerbose)
         {
             std::cout << summary.BriefReport() << std::endl;
         }
 
+        //===================
+        // for T
+        Eigen::Vector4d qT31(p31[1], p31[2], p31[3], p31[0]);
+        double tT31[3] = {p31[4], p31[5], p31[6]};
+
+        Eigen::Vector4d qT12(p12[1], p12[2], p12[3], p12[0]);
+        double tT12[3] = {p12[4], p12[5], p12[6]};
+
+        Eigen::Vector4d qT23(p23[1], p23[2], p23[3], p23[0]);
+        double tT23[3] = {p23[4], p23[5], p23[6]};
+
+        ceres::Solver::Summary summaryT;
+        ceres::Problem problemT;
+        for (size_t i = 0; i < posePairSize; i++)
+        {
+            // ceres deletes the objects allocated here for the user
+            ceres::CostFunction *costFunction =
+                new ceres::AutoDiffCostFunction<PoseErrorT, 1, 4>(
+                    new PoseErrorT(rvecs3[i], tvecs3[i], rvecs1[i], tvecs1[i], qT31));
+
+            problemT.AddResidualBlock(costFunction, NULL, tT31); //p+4 平移量
+        }
+
+        for (size_t i = 0; i < posePairSize; i++)
+        {
+            // ceres deletes the objects allocated here for the user
+            ceres::CostFunction *costFunction =
+                new ceres::AutoDiffCostFunction<PoseErrorT, 1, 4>(
+                    new PoseErrorT(rvecs1[i], tvecs1[i], rvecs2[i], tvecs2[i], qT12));
+
+            problemT.AddResidualBlock(costFunction, NULL, tT12); //p+4 平移量
+        }
+
+        for (size_t i = 0; i < posePairSize; i++)
+        {
+            // ceres deletes the objects allocated here for the user
+            ceres::CostFunction *costFunction =
+                new ceres::AutoDiffCostFunction<PoseErrorT, 1, 4>(
+                    new PoseErrorT(rvecs2[i], tvecs2[i], rvecs3[i], tvecs3[i], qT23));
+
+            problemT.AddResidualBlock(costFunction, NULL, tT23); //p+4 平移量
+        }
+
+        // 相乘为I约束
+        for (size_t i = 0; i < posePairSize; i++)
+        {
+            // ceres deletes the objects allocated here for the user
+            ceres::CostFunction *costFunction =
+                new ceres::AutoDiffCostFunction<MultiErrorT, 1, 4, 4, 4>(
+                    new MultiErrorT(qT12, qT31, qT23));
+
+            problemT.AddResidualBlock(costFunction, NULL, tT12, tT31, tT23); //p+4 平移量
+        }
+
+        // ceres deletes the object allocated here for the user
+        ceres::LocalParameterization *quaternionParameterizationT =
+            new ceres::QuaternionParameterization;
+
+        problemT.SetParameterization(tT31, quaternionParameterizationT);
+        problemT.SetParameterization(tT12, quaternionParameterizationT);
+        problemT.SetParameterization(tT23, quaternionParameterizationT);
+
+        ceres::Solver::Options optionsT;
+        optionsT.linear_solver_type = ceres::DENSE_QR;
+        optionsT.jacobi_scaling = true;
+        optionsT.max_num_iterations = 200;
+
+        // ceres::Solver::Summary summary;
+        ceres::Solve(optionsT, &problemT, &summaryT);
+
+        if (mVerbose)
+        {
+            std::cout << summaryT.BriefReport() << std::endl;
+        }
+
         Eigen::Quaterniond q12(p12[0], p12[1], p12[2], p12[3]);
         Eigen::Vector3d t12;
-        t12 << p12[4], p12[5], p12[6];
+        // t12 << p12[4], p12[5], p12[6];
+        t12 << tT12[4], tT12[5], tT12[6];
         dq12 = DualQuaterniond(q12, t12);
 
         Eigen::Quaterniond q31(p31[0], p31[1], p31[2], p31[3]);
         Eigen::Vector3d t31;
-        t31 << p31[4], p31[5], p31[6];
+        // t31 << p31[4], p31[5], p31[6];
+        t31 << tT31[4], tT31[5], tT31[6];
         dq31 = DualQuaterniond(q31, t31);
 
         Eigen::Quaterniond q23(p23[0], p23[1], p23[2], p23[3]);
         Eigen::Vector3d t23;
-        t23 << p23[4], p23[5], p23[6];
+        // t23 << p23[4], p23[5], p23[6];
+        t23 << tT23[4], tT23[5], tT23[6];
         dq23 = DualQuaterniond(q23, t23);
     }
 }

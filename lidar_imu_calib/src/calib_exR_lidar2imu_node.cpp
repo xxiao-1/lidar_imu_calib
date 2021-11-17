@@ -94,7 +94,7 @@ int main(int argc, char **argv)
     assert(caliber.sensor_buffer_3.size() == 0);
     // Eigen::Vector3d time_factor(0.5, 0.2, 1);
     //   Eigen::Vector3d time_factor(0.5, 0.5, 0.5);  
-    Eigen::Vector3d time_factor(1, 1, 1);
+    Eigen::Vector3d time_factor(1,1, 1);
     // simulate data------------------------------------------------------------------
     if (data_type == "simulate")
     {
