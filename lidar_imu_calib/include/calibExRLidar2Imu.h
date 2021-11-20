@@ -80,16 +80,12 @@ public:
     //@brief: add lidar data and calculate lidar odometry
     void addLidarData(const LidarData &data);
 
-    //@brief: add imu data and cache
-    void addImuFrame(const SensorFrame &data);
-
-    //@brief: add chassis data and cache
+    //@brief: add imu or chassis frame
+    void addImuFrame(const vector<ImuData> &imu_raw_buffer);
     void addChassisFrame(const SensorFrame &data);
 
     //@brief: integration imu data, align lidar odom and imu
     void calibLidar2Imu();
-
-    //@brief:  align lidar odom and chassis
     void calibLidar2Chassis();
 
     //@brief: align chassis odom and imu
@@ -105,6 +101,9 @@ public:
     vector<Frame> sensor_buffer_1;
     vector<Frame> sensor_buffer_2;
     vector<Frame> sensor_buffer_3;
+
+    vector<ImuData> imu_raw_buffer;
+    vector<ChassisData> chassis_raw_buffer;
 
     //@brief: interpolated attitude from start attitude to end attitude by scale
     Eigen::Quaterniond getInterpolatedAttitude(const Eigen::Quaterniond &q_s_w, const Eigen::Quaterniond &q_e_w, double scale);
@@ -162,6 +161,8 @@ private:
 
     void savePoseEE();
 
+    void savePose(string sensorName, Frame f_a_b, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
+    void toEulerAngle(Eigen::Quaterniond &q, double &roll, double &pitch, double &yaw);
     void saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW

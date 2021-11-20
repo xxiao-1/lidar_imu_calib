@@ -258,11 +258,11 @@ namespace camodocal
         int motionCount = rvecs1.size();
         Eigen::MatrixXd T(motionCount * 6, 8);
         T.setZero();
-
-        std::cout << "真值四元数为" << std::endl
-                  << gt.toRotationMatrix() << std::endl;
-        std::cout << "真值位移为" << std::endl
-                  << gtT << std::endl;
+        
+        // std::cout << "真值四元数为" << std::endl
+        //           << gt.toRotationMatrix() << std::endl;
+        // std::cout << "真值位移为" << std::endl
+        //           << gtT << std::endl;
 
         for (size_t i = 0; i < motionCount; ++i)
         {
@@ -287,23 +287,23 @@ namespace camodocal
         mVerbose = true;
         H_12 = dq.toMatrix();
 
-        Eigen::Matrix4d m13, m12, m23;
-        m13 << -0.564188, 0.602598, -0.564417, -0.775386,
-            0.635216, 0.753502, 0.169516, 0.432038,
-            0.52744, -0.262888, -0.807897, 0.770144,
-            0, 0, 0, 1;
-        m12 << 0.824186, -0.560877, 0.078324, -2.33576,
-            -0.281518, -0.525772, -0.80269, 0.0452704,
-            0.49139, 0.639516, -0.591231, 2.36009,
-            0, 0, 0, 1;
-        m23 = m12.inverse() * m13;
+        // Eigen::Matrix4d m13, m12, m23;
+        // m13 << -0.564188, 0.602598, -0.564417, -0.775386,
+        //     0.635216, 0.753502, 0.169516, 0.432038,
+        //     0.52744, -0.262888, -0.807897, 0.770144,
+        //     0, 0, 0, 1;
+        // m12 << 0.824186, -0.560877, 0.078324, -2.33576,
+        //     -0.281518, -0.525772, -0.80269, 0.0452704,
+        //     0.49139, 0.639516, -0.591231, 2.36009,
+        //     0, 0, 0, 1;
+        // m23 = m12.inverse() * m13;
         if (mVerbose)
         {
             std::cout << "# INFO: Before refinement: H_12 = " << std::endl;
             std::cout << H_12 << std::endl;
 
-            std::cout << "角度差为：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation())) << std::endl;
-            std::cout << "位移差为：" << (dq.translation() - gtT).norm() << std::endl;
+            // std::cout << "角度差为：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation())) << std::endl;
+            // std::cout << "位移差为：" << (dq.translation() - gtT).norm() << std::endl;
         }
 
         estimateHandEyeScrewRefine(dq, rvecs1, tvecs1, rvecs2, tvecs2, qIn, tIn);
@@ -313,12 +313,12 @@ namespace camodocal
         {
             std::cout << "# INFO: After refinement: H_12 = " << std::endl;
             std::cout << H_12 << std::endl;
-            std::cout << "角度差为**：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation())) << std::endl;
-            std::cout << "位移差为：" << (dq.translation() - gtT).norm() << std::endl;
+            // std::cout << "角度差为**：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation())) << std::endl;
+            // std::cout << "位移差为：" << (dq.translation() - gtT).norm() << std::endl;
         }
 
-        std::cout << "角度差为23：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(m23.block<3, 3>(0, 0))) << std::endl;
-        std::cout << "位移差为23：" << (m23.block<3, 1>(0, 3) - gtT).norm() << std::endl;
+        // std::cout << "角度差为23：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(m23.block<3, 3>(0, 0))) << std::endl;
+        // std::cout << "位移差为23：" << (m23.block<3, 1>(0, 3) - gtT).norm() << std::endl;
     }
 
     // docs in header
@@ -549,7 +549,7 @@ namespace camodocal
         if (true)
         {
             std::cout << summaryT.BriefReport() << std::endl;
-            std::cout << "===================================" << std::endl;
+            // std::cout << "===================================" << std::endl;
         }
 
         Eigen::Quaterniond q(p[0], p[1], p[2], p[3]);

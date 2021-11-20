@@ -1,15 +1,16 @@
 <launch>
         <!-- lidar2imu || chassis2lidar || imu2chassis || multi -->
     <node pkg="lidar_imu_calib" type="calib_exR_lidar2imu_node" name="calib_exR_lidar2imu_node" output="screen">
-        <param name="/calib_type" value="multi"/>   
+        <!-- <param name="/calib_type" value="lidar2imu"/>    -->
+        <param name="/calib_type" value="double"/>   
         <param name="/chassis_topic" value="/chassis_msgs"/>   
         <param name="/lidar_topic" value="/velodyne_points"/>
         <param name="/imu_topic" value="/zed2/zed_node/imu/data"/>
-        <param name="/bag_file" value="/home/xxiao/dataset/calib/parkinglot.bag"/>
+        <param name="/bag_file" value="/home/xxiao/dataset/LIO_Vehicle/parkinglot/Parkinglot1.bag"/>
         <!-- <param name="/imu_topic" value="/mti/sensor/imu"/>
-        <param name="/bag_file" value="/home/xxiao/dataset/calib/small.bag"/> -->
+        <param name="/bag_file" value="/home/xxiao/dataset/LIO_Vehicle/cycle/Big2.bag"/> -->
         <!--simulate/real-->
-        <param name="/data_type" value="simulate"/>
+        <param name="/data_type" value="real"/>
         <!--double/multi-->
         <param name="/simulate_type" value="double"/>
         <param name="/file_name1" value="/home/xxiao/dataset/calib/simulate/ex_0.0005time/1.txt"/>
