@@ -47,8 +47,8 @@ namespace camodocal
 
             DualQuaternion<T> diff = (dq1.inverse() * dq1_).log();
             // std::cout << diff.real().squaredNorm() << std::endl;
-            residual[0] = diff.real().squaredNorm() + 0.0002 * diff.dual().squaredNorm();
-            // residual[0] = diff.real().squaredNorm();
+            // residual[0] = diff.real().squaredNorm() + 0.0002 * diff.dual().squaredNorm();
+            residual[0] = diff.real().squaredNorm();
 
             return true;
         }
@@ -258,7 +258,7 @@ namespace camodocal
         int motionCount = rvecs1.size();
         Eigen::MatrixXd T(motionCount * 6, 8);
         T.setZero();
-        
+
         // std::cout << "真值四元数为" << std::endl
         //           << gt.toRotationMatrix() << std::endl;
         // std::cout << "真值位移为" << std::endl
@@ -287,23 +287,10 @@ namespace camodocal
         mVerbose = true;
         H_12 = dq.toMatrix();
 
-        // Eigen::Matrix4d m13, m12, m23;
-        // m13 << -0.564188, 0.602598, -0.564417, -0.775386,
-        //     0.635216, 0.753502, 0.169516, 0.432038,
-        //     0.52744, -0.262888, -0.807897, 0.770144,
-        //     0, 0, 0, 1;
-        // m12 << 0.824186, -0.560877, 0.078324, -2.33576,
-        //     -0.281518, -0.525772, -0.80269, 0.0452704,
-        //     0.49139, 0.639516, -0.591231, 2.36009,
-        //     0, 0, 0, 1;
-        // m23 = m12.inverse() * m13;
         if (mVerbose)
         {
             std::cout << "# INFO: Before refinement: H_12 = " << std::endl;
             std::cout << H_12 << std::endl;
-
-            // std::cout << "角度差为：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation())) << std::endl;
-            // std::cout << "位移差为：" << (dq.translation() - gtT).norm() << std::endl;
         }
 
         estimateHandEyeScrewRefine(dq, rvecs1, tvecs1, rvecs2, tvecs2, qIn, tIn);
@@ -313,12 +300,7 @@ namespace camodocal
         {
             std::cout << "# INFO: After refinement: H_12 = " << std::endl;
             std::cout << H_12 << std::endl;
-            // std::cout << "角度差为**：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(dq.rotation())) << std::endl;
-            // std::cout << "位移差为：" << (dq.translation() - gtT).norm() << std::endl;
         }
-
-        // std::cout << "角度差为23：" << 180.0 / M_PI * gt.angularDistance(Eigen::Quaternion<double>(m23.block<3, 3>(0, 0))) << std::endl;
-        // std::cout << "位移差为23：" << (m23.block<3, 1>(0, 3) - gtT).norm() << std::endl;
     }
 
     // docs in header
@@ -570,29 +552,15 @@ namespace camodocal
         auto t1_it = t1.begin();
         auto t2_it = t2.begin();
 
-        Eigen::Affine3d firstEEInverse, firstCamInverse;
-        eigenVector tvecsArm, rvecsArm, tvecsFiducial, rvecsFiducial;
-
         // bool firstTransform = true;
-
+        eigenVector tvecsArm, rvecsArm, tvecsFiducial, rvecsFiducial;
         for (int i = 0; i < t1.size(); ++i, ++t1_it, ++t2_it)
         {
             auto &eigenEE = *t1_it;
             auto &eigenCam = *t2_it;
-            // if (firstTransform)
-            // {
-            //     // firstEEInverse = eigenEE.inverse();
-            //     // firstCamInverse = eigenCam.inverse();
-            firstEEInverse = Eigen::Affine3d::Identity();
-            firstCamInverse = Eigen::Affine3d::Identity();
-            //     ROS_INFO("Adding first transformation.");
-            //     firstTransform = false;
-            // }
-            // else
-            // {
-            Eigen::Affine3d robotTipinFirstTipBase = firstEEInverse * eigenEE; // why 除以最初的变换矩阵
-            Eigen::Affine3d fiducialInFirstFiducialBase =
-                firstCamInverse * eigenCam;
+
+            Eigen::Affine3d robotTipinFirstTipBase = eigenEE; // why 除以最初的变换矩阵
+            Eigen::Affine3d fiducialInFirstFiducialBase = eigenCam;
 
             rvecsArm.push_back(eigenRotToEigenVector3dAngleAxis(
                 robotTipinFirstTipBase.rotation()));
@@ -601,13 +569,11 @@ namespace camodocal
             rvecsFiducial.push_back(eigenRotToEigenVector3dAngleAxis(
                 fiducialInFirstFiducialBase.rotation()));
             tvecsFiducial.push_back(fiducialInFirstFiducialBase.translation());
-            // ROS_INFO("Hand Eye Calibration Transform Pair Added");
 
             Eigen::Vector4d r_tmp = robotTipinFirstTipBase.matrix().col(3);
             r_tmp[3] = 0;
             Eigen::Vector4d c_tmp = fiducialInFirstFiducialBase.matrix().col(3);
             c_tmp[3] = 0;
-            // }
         }
 
         camodocal::HandEyeCalibration calib;

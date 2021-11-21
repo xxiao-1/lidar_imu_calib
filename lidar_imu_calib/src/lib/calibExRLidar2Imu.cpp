@@ -553,7 +553,7 @@ void CalibExRLidarImu::calibLidar2Imu()
     getAlignedBuffer(imu_buffer_, "imu");
     vector<pair<Frame, Frame>> corres = alignedBuffer2corres(aligned_lidar_imu_buffer_);
 
-    Eigen::AngleAxisd rotation_vector(-21 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
+    Eigen::AngleAxisd rotation_vector(0 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
     Eigen::Quaterniond oriQ = Eigen::Quaterniond(rotation_vector);
     f_l_i.rot = oriQ;
 
@@ -562,7 +562,7 @@ void CalibExRLidarImu::calibLidar2Imu()
     toEulerAngle(f_l_i.rot, roll1, pitch1, yaw1);
 
     savePose("imu_origin", f_l_i, aligned_lidar_imu_buffer_);
-    return;
+
     // 统一solve
     f_l_i = solve(corres);
     std::cout << "1---------------------------------线性求解结果" << std::endl;
@@ -589,6 +589,7 @@ void CalibExRLidarImu::calibLidar2Imu()
 
     savePose("imu_ceres", f_l_i, aligned_lidar_imu_buffer_);
 
+    std::cout << "imu_yaw_gT=" << -213 << std::endl;
     std::cout << "imu_yaw_orign=" << yaw1 << std::endl;
     std::cout << "imu_yaw_linear=" << yaw2 << std::endl;
     std::cout << "imu_yaw_ceres=" << yaw3 << std::endl;
@@ -602,13 +603,12 @@ void CalibExRLidarImu::calibLidar2Chassis()
     vector<pair<Frame, Frame>> corres = alignedBuffer2corres(aligned_lidar_chassis_buffer_);
     Eigen::Vector3d tt(0, 0, 0);
     f_l_c.tra = tt;
-    Eigen::AngleAxisd rotation_vector(-2 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
+    Eigen::AngleAxisd rotation_vector(0 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
     Eigen::Quaterniond oriQ = Eigen::Quaterniond(rotation_vector);
     f_l_c.rot = oriQ;
     toEulerAngle(f_l_c.rot, roll1, pitch1, yaw1);
     savePose("chassis_origin", f_l_c, aligned_lidar_chassis_buffer_);
 
-    return;
     // 统一solve
     f_l_c = solve(corres);
     std::cout << "1--线性求解结果" << std::endl;
@@ -637,9 +637,10 @@ void CalibExRLidarImu::calibLidar2Chassis()
     toEulerAngle(f_l_c.rot, roll3, pitch3, yaw3);
     savePose("chassis_ceres", f_l_c, aligned_lidar_chassis_buffer_);
 
-    std::cout << "imu_yaw_orign=" << yaw1 << std::endl;
-    std::cout << "imu_yaw_linear=" << yaw2 << std::endl;
-    std::cout << "imu_yaw_ceres=" << yaw3 << std::endl;
+    std::cout << "chassis_yaw_gT=" << 2.5 << std::endl;
+    std::cout << "chassis_yaw_orign=" << yaw1 << std::endl;
+    std::cout << "chassis_yaw_linear=" << yaw2 << std::endl;
+    std::cout << "chassis_yaw_ceres=" << yaw3 << std::endl;
 }
 
 void CalibExRLidarImu::calibMulti()
@@ -1037,7 +1038,9 @@ void CalibExRLidarImu::savePose(string sensorName, Frame f_a_b, vector<pair<Lida
     //get translation matrix
     Eigen::Isometry3d T = Eigen::Isometry3d::Identity(); // 虽然称为 3d ，实质上是 4＊4 的矩阵
     T.rotate(f_a_b.rot.inverse());                       // 按照 rotation_vector 进行旋转
-    T.pretranslate(f_a_b.tra);                           // 把平移向量设成 (1,3,4)
+    // T.pretranslate(f_a_b.tra);                           // 把平移向量设成 (1,3,4)
+    Eigen::Vector3d tt(0,0,0);
+    T.pretranslate(tt);                           // 把平移向量设成 (1,3,4)
     std::cout << "Transform matrix = \n"
               << T.matrix() << std::endl;
 
@@ -1101,7 +1104,8 @@ void CalibExRLidarImu::savePose(string sensorName, Frame f_a_b, vector<pair<Lida
         s.rot = sensor.rot;
 
         // translation
-        Eigen::VectorXd vs(s.tra);
+        Eigen::Vector3d vs(s.tra);
+        vs = T * vs;
         Eigen::Quaterniond qs(s.rot);
         myfile1
             << vs[0] << " " << vs[1]
