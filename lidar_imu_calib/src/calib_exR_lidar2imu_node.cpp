@@ -383,6 +383,7 @@ int main(int argc, char **argv)
                     pos[1] = chassis_shift[1];
                     pos[2] = chassis_shift[2];
                     pos = 0.95 * (oriQ * pos);
+                    
                     myfileWheel << chassis_msg->header.stamp << " ";
                     // myfileWheel << data.angVelocity[0] << " " << data.angVelocity[1] << " " << data.angVelocity[2];
                     myfileWheel << pos[0] << " " << pos[1] << " " << pos[2] << " "

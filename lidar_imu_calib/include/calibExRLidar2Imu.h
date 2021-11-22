@@ -76,7 +76,6 @@ public:
 
     //@brief: set init extrinsic if have
     void setInitExR(Eigen::Vector3d init_R);
-
     //@brief: add lidar data and calculate lidar odometry
     void addLidarData(const LidarData &data);
 
@@ -162,7 +161,7 @@ private:
     void savePoseEE();
 
     void savePose(string sensorName, Frame f_a_b, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
-    void toEulerAngle(Eigen::Quaterniond &q, double &roll, double &pitch, double &yaw);
+    Eigen::Vector3d toEulerAngle(Eigen::Quaterniond q);
     void saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
