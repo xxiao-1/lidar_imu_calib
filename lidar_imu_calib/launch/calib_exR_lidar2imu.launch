@@ -2,7 +2,7 @@
         <!-- lidar2imu || chassis2lidar || imu2chassis || multi -->
     <node pkg="lidar_imu_calib" type="calib_exR_lidar2imu_node" name="calib_exR_lidar2imu_node" output="screen">
         <!-- <param name="/calib_type" value="lidar2imu"/>    -->
-        <param name="/calib_type" value="double"/>   
+        <param name="/calib_type" value="multi"/>   
         <param name="/chassis_topic" value="/chassis_msgs"/>   
         <param name="/lidar_topic" value="/velodyne_points"/>
         <param name="/imu_topic" value="/zed2/zed_node/imu/data"/>

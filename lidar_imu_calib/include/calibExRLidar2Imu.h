@@ -19,7 +19,10 @@ using PointT = pcl::PointXYZI;
 using CloudT = pcl::PointCloud<PointT>;
 typedef std::vector<Eigen::Affine3d, Eigen::aligned_allocator<Eigen::Affine3d>>
     EigenAffineVector;
-
+// typedef std::vector<vector<pair<Eigen::Vector3d, Eigen::Vector3d>>>
+//     TraVector;
+// typedef std::vector<vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>>>
+//     RotVector;
 struct LidarData
 {
     double stamp;

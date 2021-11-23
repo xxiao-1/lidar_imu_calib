@@ -6,9 +6,12 @@
 #include <ceres/ceres.h>
 #include "DualQuaternion.h"
 
+// typedef std::vector<vector<pair<Eigen::Vector3d, Eigen::Vector3d>>>
+//     TraVector;
+// typedef std::vector<vector<pair<Eigen::Quaterniond, Eigen::Quaterniond>>>
+//     RotVector;
 typedef std::vector<Eigen::Affine3d, Eigen::aligned_allocator<Eigen::Affine3d>>
     EigenAffineVector;
-
 typedef std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>
     eigenVector;
 
@@ -76,7 +79,7 @@ namespace camodocal
     /// size N
     ///
     /// @pre all sets of parameters must have the same number of elements
-
+    static double toEulerAngle(Eigen::Quaterniond q);
     static void estimateHandEyeScrew(
         const std::vector<Eigen::Vector3d,
                           Eigen::aligned_allocator<Eigen::Vector3d>> &rvecs1,

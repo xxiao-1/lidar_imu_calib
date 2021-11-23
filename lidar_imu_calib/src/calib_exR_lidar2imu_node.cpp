@@ -270,7 +270,7 @@ int main(int argc, char **argv)
 
     double firstChassisTime = 0;
 
-    std::string rmseFilec = "/home/xxiao/HitLidarImu/result/chassis.txt";
+    std::string rmseFilec = "/home/xxiao/HitLidarImu/result/chassis_origin.txt";
     if (access(rmseFilec.c_str(), 0) == 0) //文件存在
     {
         if (remove(rmseFilec.c_str()) == 0)
@@ -369,21 +369,19 @@ int main(int argc, char **argv)
 
                 last_chassis_v = data.velocity;
                 last_chassis_angv = data.angVelocity;
-                SensorFrame.rot = chassis_rot;
-                SensorFrame.tra = 0.95 * chassis_shift;
-                caliber.addChassisFrame(SensorFrame);
+                Eigen::Vector3d pos(0, 0, 0);
                 if (saveWheel)
                 {
-                    myfileWheel.open("/home/xxiao/HitLidarImu/result/chassis.txt", ios::app);
+                    myfileWheel.open(rmseFilec, ios::app);
                     myfileWheel.precision(10);
-                    Eigen::AngleAxisd rotation_vector(2.5 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
+                    Eigen::AngleAxisd rotation_vector(0 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
                     Eigen::Quaterniond oriQ = Eigen::Quaterniond(rotation_vector);
-                    Eigen::Vector3d pos(0, 0, 0);
+
                     pos[0] = chassis_shift[0];
                     pos[1] = chassis_shift[1];
                     pos[2] = chassis_shift[2];
-                    pos = 0.95 * (oriQ * pos);
-                    
+                    pos = 0.97 * (oriQ * pos);
+
                     myfileWheel << chassis_msg->header.stamp << " ";
                     // myfileWheel << data.angVelocity[0] << " " << data.angVelocity[1] << " " << data.angVelocity[2];
                     myfileWheel << pos[0] << " " << pos[1] << " " << pos[2] << " "
@@ -392,6 +390,9 @@ int main(int argc, char **argv)
 
                     myfileWheel.close();
                 }
+                SensorFrame.rot = chassis_rot;
+                SensorFrame.tra = pos;
+                caliber.addChassisFrame(SensorFrame);
             }
         }
     }
