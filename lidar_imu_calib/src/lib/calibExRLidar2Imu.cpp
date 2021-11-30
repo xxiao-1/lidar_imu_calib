@@ -14,11 +14,16 @@
 #include <stdlib.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/point_cloud.h>
+#include "lidar_imu_calib/chassis_data.h"
+#include "utils.h"
 //for output
 #include <fstream>
 #include <iostream>
 
 #define USE_SCAN_2_MAP true
+
+// const
+std::string imu_origin_fileName = "/home/xxiao/HitLidarImu/result/i0_imu_origin.txt";
 
 CalibExRLidarImu::CalibExRLidarImu()
 {
@@ -95,15 +100,7 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
     register_->setInputSource(downed_cloud);
     register_->setInputTarget(local_map_);
     CloudT::Ptr aligned(new CloudT);
-    // if (flag[0])
-    // {
     register_->align(*aligned, T_l_m.cast<float>());
-    // }
-    // else
-    // {
-    // register_->align(*aligned);
-    //     flag[0] = 1;
-    // }
 
     if (!register_->hasConverged())
     {
@@ -124,115 +121,95 @@ void CalibExRLidarImu::addLidarData(const LidarData &data)
     // update local map
     *local_map_ += *aligned; // 最后再加入地图中
 }
-// 不能求delta是因为还没有和lidar时间对齐，要先插值，再求delta
+
+// imu odometry
 void CalibExRLidarImu::addImuFrame(const vector<ImuData> &imu_raw_buffer)
 {
-    Eigen::Quaterniond Qwb = Eigen::Quaterniond::Identity();
-    Eigen::Vector3d Pwb(0, 0, 0);
-    Eigen::Vector3d Vw(0, 0, 0);
-    double dt;
-
-    ofstream myfile;
-    std::string rmseFile = "/home/xxiao/HitLidarImu/result/imu_origin.txt";
-    if (access(rmseFile.c_str(), 0) == 0) //文件存在
-    {
-        if (remove(rmseFile.c_str()) == 0)
-        {
-            printf("updated ");
-        }
-        else
-        {
-            printf("update failed ");
-        }
-    }
-
-    myfile.open(rmseFile, ios::app); //pose
-    myfile.precision(10);
-    double index = 1.0;
+    Eigen::Quaterniond initRot = imu_raw_buffer[0].rot;
+    Eigen::Vector3d last_P(0, 0, 0);
+    Eigen::Vector3d last_V(0, 0, 0);
+    double deltaT = 0;
+    bool timeFlag = true;
     double initTime = imu_raw_buffer[0].stamp;
-    Qwb = imu_raw_buffer[0].rot;
-    Eigen::AngleAxisd rotation_vector(0 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
-    Eigen::Quaterniond oriQ = Eigen::Quaterniond(rotation_vector);
-    bool firstD = true;
-    bool firstD1 = true;
 
+    ofstream imu_origin_file;
+    deleteFile(imu_origin_fileName);
+    imu_origin_file.open(imu_origin_fileName, ios::app);
+    imu_origin_file.precision(10);
+    double scale = 1.0;
     for (int i = 0; i < imu_raw_buffer.size(); ++i)
     {
         ImuData imupose1 = imu_raw_buffer[i];
-        imupose1.rot = Qwb.inverse() * imupose1.rot;
+        imupose1.rot = initRot.inverse() * imupose1.rot;
 
         if (i >= 1)
         {
             ImuData imupose = imu_raw_buffer[i - 1];
-            dt = imupose1.stamp - imupose.stamp;
+            deltaT = imupose1.stamp - imupose.stamp;
 
-            // // use ori
-            // Pwb = Pwb + Vw * dt + imupose.rot * (imupose.acc / 2.0 * dt * dt);
-            // Vw = imupose.rot * imupose.acc * dt + Vw;
+            // use ori
             double deltaT = imupose1.stamp - initTime;
-            // std::cout<<"deltaT="<<deltaT<<std::endl;
+
             if (deltaT > 85)
             {
-                index = 1.0 / 2560;
+                scale = 1.0 / 2560;
             }
             else if (deltaT > 70)
             {
-                index = 1.0 / 1280.0;
+                scale = 1.0 / 1280.0;
             }
             else if (deltaT > 50)
             {
-                index = 1.0 / 640;
+                scale = 1.0 / 640;
             }
             else if (deltaT > 16)
             {
-                index = 1.0 / 360;
+                scale = 1.0 / 360;
             }
             else if (deltaT > 10)
             {
-                index = 1.0 / 70;
+                scale = 1.0 / 70;
             }
             else if (deltaT > 7)
             {
-                index = 1.0 / 1.05;
+                scale = 1.0 / 1.05;
             }
 
-            if (deltaT > 35 && firstD1)
+            if (deltaT > 35 && timeFlag)
             {
-                Vw = Vw * 1.15;
-                firstD1 = false;
+                last_V = last_V * 1.15;
+                timeFlag = false;
             }
 
-            imupose.rot = Qwb.inverse() * imupose.rot;
-            Eigen::Vector3d averageAcc = index * (imupose.acc + imupose1.acc) / 2.0;
-            Pwb = Pwb + imupose.rot * Vw * dt + imupose.rot * (averageAcc / 2.0 * dt * dt);
-            Vw = (imupose.rot.inverse() * imupose1.rot) * averageAcc * dt + Vw;
-            // std::cout << "imu time is " << deltaT << " acc is " << averageAcc.transpose() << std::endl;
+            imupose.rot = initRot.inverse() * imupose.rot;
+            Eigen::Vector3d averageAcc = scale * (imupose.acc + imupose1.acc) / 2.0;
+            last_P = last_P + imupose.rot * last_V * deltaT + imupose.rot * (averageAcc / 2.0 * deltaT * deltaT);
+            last_V = (imupose.rot.inverse() * imupose1.rot) * averageAcc * deltaT + last_V;
         }
-        Eigen::Vector3d tmpP(0, 0, 0);
-        tmpP[0] = Pwb(0);
-        tmpP[1] = Pwb(1);
-        tmpP[2] = Pwb(2);
-        tmpP = 0.97*(oriQ * tmpP);
-        // Eigen::Quaterniond imu_rot = oriQ * imupose1.rot;
-        //存储位姿
-        myfile << imupose1.stamp << " "
-               << tmpP[0] << " "
-               << tmpP[1] << " "
-               << tmpP[2] << " "
-               << imupose1.rot.x() << " "
-               << imupose1.rot.y() << " "
-               << imupose1.rot.z() << " "
-               << imupose1.rot.w();
-        myfile << "\n";
 
+        // Eigen::Vector3d tmpP = changeTrans(last_P, 57, 0.97);
+        Eigen::Vector3d tmpP = last_P * 1e-7;
+        // std::cout<<"tmpP="<<tmpP.transpose()<<std::endl;
+
+        // 储存imu frame
         SensorFrame imuFrame;
         imuFrame.stamp = imupose1.stamp;
-        // imuFrame.tra = Pwb;
         imuFrame.tra = tmpP;
         imuFrame.rot = imupose1.rot;
         imu_buffer_.push_back(imuFrame);
+
+        //存储位姿
+        imu_origin_file << imupose1.stamp << " "
+                        << tmpP[0] << " "
+                        << tmpP[1] << " "
+                        << tmpP[2] << " "
+                        << imupose1.rot.x() << " "
+                        << imupose1.rot.y() << " "
+                        << imupose1.rot.z() << " "
+                        << imupose1.rot.w();
+        imu_origin_file << "\n";
     }
-    myfile.close();
+    imu_origin_file.close();
 }
 
 void CalibExRLidarImu::addChassisFrame(const SensorFrame &data)
@@ -519,8 +496,8 @@ void CalibExRLidarImu::optimize(string sensorName, vector<pair<LidarFrame, Senso
         *local_map_ += *changed;
     }
     std::cout << "transformed" << sensorName << std::endl;
-    int ret = pcl::io::savePCDFileBinary("/home/xxiao/HitLidarImu/result/" + sensorName + "localMap.pcd", *local_map_);
-    std::cout << "combined cloud saved" << ret << std::endl;
+    // int ret = pcl::io::savePCDFileBinary("/home/xxiao/HitLidarImu/result/" + sensorName + "localMap.pcd", *local_map_);
+    // std::cout << "combined cloud saved" << ret << std::endl;
 
     // generate constraints
     vector<pair<Frame, Frame>> corres = alignedBuffer2corres(aligned_sensor_buffer_);
@@ -544,50 +521,42 @@ void CalibExRLidarImu::optimize(string sensorName, vector<pair<LidarFrame, Senso
 
 void CalibExRLidarImu::calibLidar2Imu()
 {
-
     getAlignedBuffer(imu_buffer_, "imu");
     vector<pair<Frame, Frame>> corres = alignedBuffer2corres(aligned_lidar_imu_buffer_);
-
-    Eigen::AngleAxisd rotation_vector(147 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
-    Eigen::Quaterniond oriQ = Eigen::Quaterniond(rotation_vector);
-    f_l_i.rot = oriQ;
-    Eigen::Vector3d tt(0, 0, 0);
-    f_l_i.tra = tt;
-    Eigen::Vector3d ang1 = toEulerAngle(f_l_i.rot);
-
-    savePose("imu_gT", f_l_i, aligned_lidar_imu_buffer_);
-
-    // 统一solve
-    f_l_i = solve(corres);
-    // std::cout << "1---------------------------------线性求解结果" << std::endl;
-    // printFrame(f_l_i);
-    Eigen::Vector3d ang2 = toEulerAngle(f_l_i.rot);
-    f_l_i.tra = tt;
-    savePose("imu_linear", f_l_i, aligned_lidar_imu_buffer_);
-
-    // saveCombinedMap("imu", "1_imu", aligned_lidar_imu_buffer_);
-
-    // optimize("imu", aligned_lidar_imu_buffer_);
-    // std::cout << "2--optimize结果" << std::endl;
-    // printFrame(f_l_i);
-    // saveCombinedMap("imu", "2_imu", aligned_lidar_imu_buffer_);
-
     vector<EigenAffineVector> t = corres2affine(corres);
     EigenAffineVector t1 = t[0];
     EigenAffineVector t2 = t[1];
 
+    // 手动真值
+    f_l_i.rot = yawToQuaterniond(90);
+    Eigen::Vector3d ang1 = toEulerAngle(f_l_i.rot);
+    savePose("i1_imu_gT", f_l_i, aligned_lidar_imu_buffer_);
+
+    // 优化
+    // optimize("imu", aligned_lidar_imu_buffer_);
+    // savePose("imu_ngT", f_l_i, aligned_lidar_imu_buffer_);
+
+    // 线性solve
+    f_l_i = solve(corres);
+    savePose("i2_imu_linear", f_l_i, aligned_lidar_imu_buffer_);
+    Eigen::Vector3d ang2 = toEulerAngle(f_l_i.rot);
+
+    // double
     camodocal::HandEyeCalibration ceresHandeye;
     auto a_l_i = ceresHandeye.solveCeres(t1, t2, f_l_i.rot, f_l_i.tra);
-    f_l_i.rot = Eigen::Quaternion<double>(a_l_i.rotation());
-    f_l_i.tra = Eigen::Matrix<double, 3, 1>(a_l_i.translation());
+    f_l_c.rot = Eigen::Quaternion<double>(a_l_i.rotation());
+    f_l_c.tra = Eigen::Matrix<double, 3, 1>(a_l_i.translation());
+    savePose("i3_imu_double", f_l_i, aligned_lidar_imu_buffer_);
     Eigen::Vector3d ang3 = toEulerAngle(f_l_i.rot);
 
-    savePose("imu_ceres", f_l_i, aligned_lidar_imu_buffer_);
+    // f_l_i.rot = toEulerAngle(90.834);
+    // savePose("i4_imu_multi", f_l_i, aligned_lidar_imu_buffer_);
+    // Eigen::Vector3d ang4 = toEulerAngle(f_l_i.rot);
 
-    // std::cout << "imu_yaw_gT=" << 0 << std::endl;
     std::cout << "imu_gT=" << ang1.transpose() << std::endl;
     std::cout << "imu_linear=" << ang2.transpose() << std::endl;
-    std::cout << "imu_ceres=" << ang3.transpose() << std::endl;
+    std::cout << "imu_double=" << ang3.transpose() << std::endl;
+    // std::cout << "imu_multi=" << ang4.transpose() << std::endl;
 }
 
 void CalibExRLidarImu::calibLidar2Chassis()
@@ -596,46 +565,77 @@ void CalibExRLidarImu::calibLidar2Chassis()
     // lidar chassis
     getAlignedBuffer(chassis_buffer_, "chassis");
     vector<pair<Frame, Frame>> corres = alignedBuffer2corres(aligned_lidar_chassis_buffer_);
-    Eigen::Vector3d tt(0, 0, 0);
-    f_l_c.tra = tt;
-    Eigen::AngleAxisd rotation_vector(2.5 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
-    Eigen::Quaterniond oriQ = Eigen::Quaterniond(rotation_vector);
-    f_l_c.rot = oriQ;
-    Eigen::Vector3d ang11 = toEulerAngle(f_l_c.rot);
-    savePose("chassis_gT", f_l_c, aligned_lidar_chassis_buffer_);
-  
-    // 统一solve
-    f_l_c = solve(corres);
-    std::cout << "1--线性求解结果" << std::endl;
-    printFrame(f_l_c);
-    Eigen::Vector3d ang22 = toEulerAngle(f_l_c.rot);
-    savePose("chassis_linear", f_l_c, aligned_lidar_chassis_buffer_);
-    // saveCombinedMap("chassis", "1_chassis", aligned_lidar_chassis_buffer_);
+    vector<EigenAffineVector> t = corres2affine(corres);
+    EigenAffineVector t1 = t[0];
+    EigenAffineVector t2 = t[1];
 
-    // optimize("chassis", aligned_lidar_chassis_buffer_);
-    // std::cout << "2--optimize结果" << std::endl;
-    // printFrame(f_l_c);
-    // saveCombinedMap("chassis", "2_chassis", aligned_lidar_chassis_buffer_);
+    // 手动真值
+    f_l_c.rot = yawToQuaterniond(2.5);
+    Eigen::Vector3d ang11 = toEulerAngle(f_l_c.rot);
+    savePose("c1_chassis_gT", f_l_c, aligned_lidar_chassis_buffer_);
+
+    // 线性solve
+    f_l_c = solve(corres);
+    Eigen::Vector3d ang22 = toEulerAngle(f_l_c.rot);
+    savePose("c2_chassis_linear", f_l_c, aligned_lidar_chassis_buffer_);
+
+    // double
+    camodocal::HandEyeCalibration ceresHandeye;
+    auto a_l_c = ceresHandeye.solveCeres(t1, t2, f_l_c.rot, f_l_c.tra);
+    f_l_c.rot = Eigen::Quaternion<double>(a_l_c.rotation());
+    f_l_c.tra = Eigen::Matrix<double, 3, 1>(a_l_c.translation());
+    Eigen::Vector3d ang33 = toEulerAngle(f_l_c.rot);
+    savePose("c3_chassis_ceres", f_l_c, aligned_lidar_chassis_buffer_);
+
+    // std::cout << "chassis_yaw_gT=" << -2.5 << std::endl;
+    std::cout << "chassis_gT=" << ang11.transpose() << std::endl;
+    std::cout << "chassis_linear=" << ang22.transpose() << std::endl;
+    std::cout << "chassis_ceres=" << ang33.transpose() << std::endl;
+}
+
+void CalibExRLidarImu::calibImu2Chassis()
+{
+
+    // lidar chassis
+    getAlignedBuffer(imu_buffer_, "imu");
+    vector<pair<Frame, Frame>> corres_li = alignedBuffer2corres(aligned_lidar_imu_buffer_);
+    getAlignedBuffer(chassis_buffer_, "chassis");
+    vector<pair<Frame, Frame>> corres_lc = alignedBuffer2corres(aligned_lidar_chassis_buffer_);
+
+    int size = corres_lc.size();
+    if (corres_li.size() < size)
+    {
+        size = corres_li.size();
+    }
+    vector<pair<Frame, Frame>> corres;
+    for (int i = 0; i < size; i++)
+    {
+        Frame imuF = corres_li[i].second;
+        Frame chassisF = corres_lc[i].second;
+        corres.push_back(move(pair<Frame, Frame>(imuF, chassisF)));
+    }
+
+    // 统一solve
+    f_i_c = solve(corres);
+    std::cout << "1--线性求解结果" << std::endl;
+    Eigen::Vector3d ang22 = toEulerAngle(f_i_c.rot);
 
     vector<EigenAffineVector> t = corres2affine(corres);
     EigenAffineVector t1 = t[0];
     EigenAffineVector t2 = t[1];
 
     camodocal::HandEyeCalibration ceresHandeye;
-    auto a_l_c = ceresHandeye.solveCeres(t1, t2, f_l_c.rot, f_l_c.tra);
-    f_l_c.rot = Eigen::Quaternion<double>(a_l_c.rotation());
-    f_l_c.tra = Eigen::Matrix<double, 3, 1>(a_l_c.translation());
+    auto a_l_c = ceresHandeye.solveCeres(t1, t2, f_i_c.rot, f_i_c.tra);
+    f_i_c.rot = Eigen::Quaternion<double>(a_l_c.rotation());
+    f_i_c.tra = Eigen::Matrix<double, 3, 1>(a_l_c.translation());
     std::cout << "3--optimize结果" << std::endl;
     std::cout << a_l_c.matrix() << std::endl;
 
-    // saveCombinedMap("chassis", "3_chassis", aligned_lidar_chassis_buffer_);
-    Eigen::Vector3d ang33 = toEulerAngle(f_l_c.rot);
-    savePose("chassis_ceres", f_l_c, aligned_lidar_chassis_buffer_);
+    Eigen::Vector3d ang33 = toEulerAngle(f_i_c.rot);
 
-    // std::cout << "chassis_yaw_gT=" << -2.5 << std::endl;
-    std::cout << "chassis_gT=" << ang11.transpose() << std::endl;
-    std::cout << "chassis_linear=" << ang22.transpose() << std::endl;
-    std::cout << "chassis_ceres=" << ang33.transpose() << std::endl;
+    std::cout << "imu2chassis_gT=" << 144.5 << std::endl;
+    std::cout << "imu2chassis_linear=" << ang22.transpose() << std::endl;
+    std::cout << "imu2chassis_ceres=" << ang33.transpose() << std::endl;
 }
 
 void CalibExRLidarImu::calibMulti()
@@ -806,7 +806,7 @@ void CalibExRLidarImu::getAlignedBuffer(vector<SensorFrame> sensor_buffer_, stri
         }
     }
     // std::cout << "mark before save lidar" << std::endl;
-    // savePoseKalibr();
+
     // savePoseEE();
 }
 
@@ -931,7 +931,20 @@ void CalibExRLidarImu::printFrame(Frame frame)
 void CalibExRLidarImu::savePoseKalibr()
 {
     ofstream myfile;
-    myfile.open("/home/xxiao/HitLidarImu/result/poseLidarKalibr.txt", ios::app); //pose
+    std::string rmseFile = "/home/xxiao/HitLidarImu/result/poseLidarKalibr.txt";
+
+    if (access(rmseFile.c_str(), 0) == 0) //文件存在
+    {
+        if (remove(rmseFile.c_str()) == 0)
+        {
+            std::cout << "poseLidarKalibr update done :)" << std::endl;
+        }
+        else
+        {
+            std::cout << "poseLidarKalibr update failed :(" << std::endl;
+        }
+    }
+    myfile.open(rmseFile, ios::app); //pose
     myfile.precision(10);
     for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
     {
@@ -988,7 +1001,19 @@ void CalibExRLidarImu::savePoseEE()
 {
     // lidar
     ofstream myfile;
-    myfile.open("/home/xxiao/HitLidarImu/result/poseLidar.txt", ios::app); //pose
+    std::string rmseFile = "/home/xxiao/HitLidarImu/result/poseLidar.txt";
+    if (access(rmseFile.c_str(), 0) == 0) //文件存在
+    {
+        if (remove(rmseFile.c_str()) == 0)
+        {
+            std::cout << "poseLidar update done :)" << std::endl;
+        }
+        else
+        {
+            std::cout << "poseLidar update failed :(" << std::endl;
+        }
+    }
+    myfile.open(rmseFile, ios::app); //pose
     myfile.precision(10);
     for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
     {
@@ -1037,69 +1062,51 @@ void CalibExRLidarImu::savePoseEE()
 void CalibExRLidarImu::savePose(string sensorName, Frame f_a_b, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)
 {
     //get translation matrix
-    Eigen::Isometry3d T = Eigen::Isometry3d::Identity(); // 虽然称为 3d ，实质上是 4＊4 的矩阵
-    T.rotate(f_a_b.rot);                                 // 按照 rotation_vector 进行旋转
-    T.pretranslate(f_a_b.tra);                           // 把平移向量设成 (1,3,4)
+    Eigen::Isometry3d T = Eigen::Isometry3d::Identity();
+    T.rotate(f_a_b.rot);
     Eigen::Vector3d tt(0, 0, 0);
     T.pretranslate(tt); // 把平移向量设成 (1,3,4)
-    std::cout << "Transform matrix = \n"
-              << T.matrix() << std::endl;
 
     std::cout << "save pose of " << sensorName << " length is " << aligned_sensor_buffer_.size() << std::endl;
-    ofstream myfile;
-    std::string rmseFile = "/home/xxiao/HitLidarImu/result/lidar.txt";
-    if (access(rmseFile.c_str(), 0) == 0) //文件存在
-    {
-        if (remove(rmseFile.c_str()) == 0)
-        {
-            std::cout << "lidar update done :)" << std::endl;
-        }
-        else
-        {
-            std::cout << "lidar update failed :(" << std::endl;
-        }
-    }
+    ofstream lidar_file;
+    std::string lidar_fileName = "/home/xxiao/HitLidarImu/result/lidar.txt";
+    deleteFile(lidar_fileName);
 
-    myfile.open(rmseFile, ios::app); //pose
-    myfile.precision(10);
+    lidar_file.open(lidar_fileName, ios::app);
+    lidar_file.precision(10);
     for (int i = 0; i < aligned_sensor_buffer_.size(); i++)
     {
         LidarFrame lidar = aligned_sensor_buffer_[i].first;
-
-        myfile << ros::Time().fromSec(lidar.stamp) << " ";
-        Eigen::VectorXd v(3);
-        v = lidar.gT.topRightCorner<3, 1>();
-
-        Eigen::Matrix3d C = lidar.gT.topLeftCorner<3, 3>();
-        Eigen::Quaterniond q(C);
-
-        myfile << v[0] << " " << v[1]
-               << " " << v[2] << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w();
-        myfile << "\n";
-    }
-    myfile.close();
-
-    ofstream myfile1;
-    std::string rmseFile1 = "/home/xxiao/HitLidarImu/result/" + sensorName + ".txt";
-    if (access(rmseFile1.c_str(), 0) == 0) //文件存在
-    {
-        if (remove(rmseFile1.c_str()) == 0)
+        if (true)
         {
-            std::cout << sensorName << " update done :)" << std::endl;
-        }
-        else
-        {
-            std::cout << sensorName << " update failed :(" << std::endl;
+            lidar_file << ros::Time().fromSec(lidar.stamp) << " ";
+            Eigen::VectorXd v(3);
+            v = lidar.gT.topRightCorner<3, 1>();
+            // v = changeTrans(v, -1.7, 0.97);
+
+            Eigen::Matrix3d C = lidar.gT.topLeftCorner<3, 3>();
+            Eigen::Quaterniond q1(C);
+            Eigen::Quaterniond q = clearRollPitch(q1);
+            // v[2] = 0;
+            lidar_file << v[0] << " " << v[1]
+                       << " " << v[2] << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w();
+            lidar_file << "\n";
         }
     }
+    lidar_file.close();
 
-    myfile1.open(rmseFile1, ios::app); //pose
-    myfile1.precision(10);
+    ofstream sensor_file;
+    std::string sensor_fileName = "/home/xxiao/HitLidarImu/result/" + sensorName + ".txt";
+    deleteFile(sensor_fileName);
+
+    sensor_file.open(sensor_fileName, ios::app); 
+    sensor_file.precision(10);
+    double time_offset = 0.0;
 
     for (int i = 0; i < aligned_sensor_buffer_.size(); i++)
     {
         SensorFrame sensor = aligned_sensor_buffer_[i].second;
-        myfile1 << ros::Time().fromSec(sensor.stamp) << " ";
+        sensor_file << ros::Time().fromSec(sensor.stamp - time_offset) << " ";
         Frame s;
         s.tra = sensor.tra;
         s.rot = sensor.rot;
@@ -1108,36 +1115,12 @@ void CalibExRLidarImu::savePose(string sensorName, Frame f_a_b, vector<pair<Lida
         Eigen::Vector3d vs(s.tra);
         vs = T * vs;
         Eigen::Quaterniond qs(s.rot);
-        myfile1
+        sensor_file
             << vs[0] << " " << vs[1]
             << " " << vs[2] << " " << qs.x() << " " << qs.y() << " " << qs.z() << " " << qs.w();
-        myfile1 << "\n";
+        sensor_file << "\n";
     }
-    myfile1.close();
-}
-
-Eigen::Vector3d CalibExRLidarImu::toEulerAngle(Eigen::Quaterniond q)
-{
-    double roll = 0, pitch = 0, yaw = 0;
-    double k = 180 / M_PI;
-    // roll (x-axis rotation)
-    double sinr_cosp = +2.0 * (q.w() * q.x() + q.y() * q.z());
-    double cosr_cosp = +1.0 - 2.0 * (q.x() * q.x() + q.y() * q.y());
-    roll = k * atan2(sinr_cosp, cosr_cosp);
-
-    // pitch (y-axis rotation)
-    double sinp = +2.0 * (q.w() * q.y() - q.z() * q.x());
-    if (fabs(sinp) >= 1)
-        pitch = k * copysign(M_PI / 2, sinp); // use 90 degrees if out of range
-    else
-        pitch = k * asin(sinp);
-
-    // yaw (z-axis rotation)
-    double siny_cosp = +2.0 * (q.w() * q.z() + q.x() * q.y());
-    double cosy_cosp = +1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z());
-    yaw = k * atan2(siny_cosp, cosy_cosp);
-    Eigen::Vector3d res(roll, pitch, yaw);
-    return res;
+    sensor_file.close();
 }
 
 void CalibExRLidarImu::saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_)

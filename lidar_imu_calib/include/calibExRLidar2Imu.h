@@ -89,6 +89,7 @@ public:
     //@brief: integration imu data, align lidar odom and imu
     void calibLidar2Imu();
     void calibLidar2Chassis();
+    void calibImu2Chassis();
 
     //@brief: align chassis odom and imu
     void calibMulti();
@@ -133,6 +134,7 @@ private:
 
     Frame f_l_i;
     Frame f_l_c;
+    Frame f_i_c;
     Eigen::Quaterniond t_l_b_;
     Eigen::Quaterniond t_l_v_; // result
     Eigen::Matrix4d T_l_m;
@@ -145,8 +147,6 @@ private:
     vector<pair<Frame, Frame>> corres1_;
     vector<pair<Frame, Frame>> corres2_; // 点云优化后
 
-    Frame getDetlaFrame(Frame f1, Frame f2);
-
     vector<EigenAffineVector> corres2affine(vector<pair<Frame, Frame>> corres);
 
     vector<pair<Frame, Frame>> singleBuffer2corres(vector<Frame> buffer1, vector<Frame> buffer2);
@@ -157,15 +157,13 @@ private:
 
     Eigen::Affine3d frame2affine(Frame frame);
 
+    Frame getDetlaFrame(Frame f1, Frame f2);
     void printFrame(Frame frame);
 
     void savePoseKalibr();
-
     void savePoseEE();
-
-    void savePose(string sensorName, Frame f_a_b, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
-    Eigen::Vector3d toEulerAngle(Eigen::Quaterniond q);
     void saveCombinedMap(string sensorName, string fileName, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
+    void savePose(string sensorName, Frame f_a_b, vector<pair<LidarFrame, SensorFrame>> aligned_sensor_buffer_);
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };

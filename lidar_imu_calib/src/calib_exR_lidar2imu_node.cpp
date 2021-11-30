@@ -8,11 +8,12 @@
 #include <queue>
 #include <time.h>
 #include "calibExRLidar2Imu.h"
-#include "lidar_imu_calib/chassis_data.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include "utils.h"
+#include "lidar_imu_calib/chassis_data.h"
 
 #include <boost/foreach.hpp>
 #define foreach BOOST_FOREACH
@@ -21,7 +22,9 @@ using namespace std;
 
 queue<sensor_msgs::PointCloud2ConstPtr> lidar_buffer;
 queue<sensor_msgs::ImuConstPtr> imu_buffer;
-bool needLidar = false, needImu = false, needChassis = false;
+std::string chassis_origin_filename = "/home/xxiao/HitLidarImu/result/c0_chassis_origin.txt";
+std::string angv_chassis_filename = "/home/xxiao/HitLidarImu/result/forKalibr/angv_chassis.txt";
+std::string angv_imu_filename = "/home/xxiao/HitLidarImu/result/forKalibr/angv_imu.txt";
 
 void lidarCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
 {
@@ -67,22 +70,20 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "calib_exR_lidar2imu_node");
     ros::NodeHandle nh, pnh("~");
 
-    string data_type;
-    if (!pnh.getParam("data_type", data_type))
-    {
-        cout << "please config param: data_type simulate or not  !!!" << endl;
-        return 0;
-    }
-    string simulate_type;
-    if (!pnh.getParam("simulate_type", simulate_type))
-    {
-        cout << "please config param: simulate_type double or multi  !!!" << endl;
-        return 0;
-    }
+    // get params
+    string calib_type, lidar_topic, imu_topic, chassis_topic, bag_file, save_mode, simulate_type, data_type;
     vector<string> fileNames(3);
     pnh.getParam("file_name1", fileNames[0]);
     pnh.getParam("file_name2", fileNames[1]);
     pnh.getParam("file_name3", fileNames[2]);
+    pnh.getParam("calib_type", calib_type);
+    pnh.getParam("simulate_type", simulate_type);
+    pnh.getParam("data_type", data_type);
+    pnh.getParam("lidar_topic", lidar_topic);
+    pnh.getParam("imu_topic", imu_topic);
+    pnh.getParam("chassis_topic", chassis_topic);
+    pnh.getParam("bag_file", bag_file);
+    pnh.getParam("save_mode", save_mode);
 
     // initialize caliber
     CalibExRLidarImu caliber;
@@ -92,10 +93,9 @@ int main(int argc, char **argv)
     assert(caliber.sensor_buffer_1.size() == 0);
     assert(caliber.sensor_buffer_2.size() == 0);
     assert(caliber.sensor_buffer_3.size() == 0);
-    // Eigen::Vector3d time_factor(0.5, 0.2, 1);
-    //   Eigen::Vector3d time_factor(0.5, 0.5, 0.5);
+
+    // simulate part------------------------------------------------------------------
     Eigen::Vector3d time_factor(1, 1, 1);
-    // simulate data------------------------------------------------------------------
     if (data_type == "simulate")
     {
         // read new data
@@ -203,41 +203,9 @@ int main(int argc, char **argv)
         return 0;
     } // simulate
 
-    // real data----------------------------------------------------------------------
+    // real part----------------------------------------------------------------------
 
-    // read calib type
-    string calib_type;
-    if (!pnh.getParam("calib_type", calib_type))
-    {
-        cout << "please config param: calib_type !!!" << endl;
-        return 0;
-    }
-
-    std::cout << "calib_type" << calib_type << endl;
-
-    needLidar = true;
-    needChassis = true;
-    needImu = true;
-
-    std::cout << "needLidar:" << needLidar << "   needImu:" << needImu << "   needChassis:" << needChassis << endl;
-
-    // read data topic
-    string lidar_topic, imu_topic, chassis_topic;
-    if (!pnh.getParam("lidar_topic", lidar_topic) || !pnh.getParam("imu_topic", imu_topic) || !pnh.getParam("chassis_topic", chassis_topic))
-    {
-        cout << "please config param: lidar_topic, imu_topic ,chassis_topic !!!" << endl;
-        return 0;
-    }
-
-    // get local param
-    string bag_file;
-    if (!pnh.getParam("bag_file", bag_file))
-    {
-        cout << "please config param: bag_file !!!" << endl;
-        return 0;
-    }
-
-    // open bagfile
+    // read bagfile
     rosbag::Bag bag;
     bag.open(bag_file, rosbag::bagmode::Read);
     vector<string> topics;
@@ -246,156 +214,139 @@ int main(int argc, char **argv)
     topics.push_back(chassis_topic);
     rosbag::View view(bag, rosbag::TopicQuery(topics));
 
-    ros::Time imu_time;
-
     ros::Time chassis_time;
-    size_t chassis_num = 0;
+    bool first_chassis_msg = true;
     double chassis_delta_t;
     Eigen::Quaterniond chassis_rot = Eigen::Quaterniond::Identity();
-    Eigen::Vector3d chassis_shift(0, 0, 0);
+    Eigen::Vector3d chassis_trans(0, 0, 0);
     Eigen::Vector3d last_chassis_angv(0, 0, 0);
     Eigen::Vector3d last_chassis_v(0, 0, 0);
 
-    Eigen::Quaterniond first_imu_rot = Eigen::Quaterniond::Identity();
-    Eigen::Quaterniond first_chassis_rot = Eigen::Quaterniond::Identity();
+    ofstream angv_imu_file;
+    ofstream angv_chassis_file;
+    ofstream chassis_origin_file;
+    deleteFile(chassis_origin_filename);
+    deleteFile(angv_chassis_filename);
+    deleteFile(angv_imu_filename);
 
-    ofstream myfileIMU;
-    bool saveIMU = true;
-    ofstream myfileWheel;
-    bool saveWheel = true;
-    // read data and add data 逐条读取bag内消息
-    int index = 1;
-    double acc1 = 0;
-    double acc2 = 0;
-
-    double firstChassisTime = 0;
-
-    std::string rmseFilec = "/home/xxiao/HitLidarImu/result/chassis_origin.txt";
-    if (access(rmseFilec.c_str(), 0) == 0) //文件存在
-    {
-        if (remove(rmseFilec.c_str()) == 0)
-        {
-            printf("chassis updated ");
-        }
-        else
-        {
-            printf("chassis update failed ");
-        }
-    }
     foreach (rosbag::MessageInstance const m, view)
     {
         ROS_INFO_STREAM_THROTTLE(5.0, "add sensor msg ......");
 
         // add lidar msg
         sensor_msgs::PointCloud2ConstPtr lidar_msg = m.instantiate<sensor_msgs::PointCloud2>();
-        if (needLidar && lidar_msg != NULL)
+        if (lidar_msg != NULL)
         {
             CloudT::Ptr cloud(new CloudT);
             pcl::fromROSMsg(*lidar_msg, *cloud);
-            LidarData data;
-            data.cloud = cloud;
-            data.stamp = lidar_msg->header.stamp.toSec();
-            caliber.addLidarData(data);
+            LidarData lidarData;
+            lidarData.cloud = cloud;
+            lidarData.stamp = lidar_msg->header.stamp.toSec();
+            caliber.addLidarData(lidarData);
         }
 
         // add imu msg
         sensor_msgs::ImuConstPtr imu_msg = m.instantiate<sensor_msgs::Imu>();
-        if (needImu && imu_msg)
+        if (imu_msg != NULL)
         {
-            ImuData data;
-            data.acc = Eigen::Vector3d(imu_msg->linear_acceleration.x,
-                                       imu_msg->linear_acceleration.y,
-                                       imu_msg->linear_acceleration.z - 9.801);
-            data.gyr = Eigen::Vector3d(imu_msg->angular_velocity.x,
-                                       imu_msg->angular_velocity.y,
-                                       imu_msg->angular_velocity.z);
-            data.rot = Eigen::Quaterniond(imu_msg->orientation.w,
-                                          imu_msg->orientation.x,
-                                          imu_msg->orientation.y,
-                                          imu_msg->orientation.z);
-            data.stamp = imu_msg->header.stamp.toSec();
+            ImuData imuData;
+            imuData.acc = Eigen::Vector3d(imu_msg->linear_acceleration.x,
+                                          imu_msg->linear_acceleration.y,
+                                          imu_msg->linear_acceleration.z - 9.801);
+            imuData.gyr = Eigen::Vector3d(imu_msg->angular_velocity.x,
+                                          imu_msg->angular_velocity.y,
+                                          imu_msg->angular_velocity.z);
+            imuData.rot = Eigen::Quaterniond(imu_msg->orientation.w,
+                                             imu_msg->orientation.x,
+                                             imu_msg->orientation.y,
+                                             imu_msg->orientation.z);
+            imuData.stamp = imu_msg->header.stamp.toSec();
 
-            caliber.imu_raw_buffer.push_back(data);
+            caliber.imu_raw_buffer.push_back(imuData);
 
-            if (false)
+            if (save_mode == "forKalibr")
             {
-                myfileIMU.open("/home/xxiao/HitLidarImu/result/angVImu.txt", ios::app);
-                myfileIMU.precision(10);
 
-                myfileIMU << imu_msg->header.stamp << " ";
-                myfileIMU << imu_msg->angular_velocity.x << " " << imu_msg->angular_velocity.y << " " << imu_msg->angular_velocity.z;
+                angv_imu_file.open(angv_imu_filename, ios::app);
+                angv_imu_file.precision(10);
 
-                // myfileIMU << imu_shift[0] << " " << imu_shift[1] << " " << imu_shift[2] << " "
-                //           << imu_msg->orientation.x << " " << imu_msg->orientation.y << " "
-                //           << imu_msg->orientation.z << " " << imu_msg->orientation.w;
+                angv_imu_file << imu_msg->header.stamp << " ";
+                angv_imu_file << imu_msg->angular_velocity.x << " " << imu_msg->angular_velocity.y << " " << imu_msg->angular_velocity.z;
 
-                myfileIMU << "\n";
+                angv_imu_file << "\n";
 
-                myfileIMU.close();
+                angv_imu_file.close();
             }
         }
 
         // add chassis msg
         lidar_imu_calib::chassis_data::ConstPtr chassis_msg = m.instantiate<lidar_imu_calib::chassis_data>();
-        // if (needChassis && chassis_msg)
-        if (needChassis && chassis_msg)
+        if (chassis_msg != NULL)
         {
-            ChassisData data;
-            data = vehicleDynamicsModel(chassis_msg->header.stamp.toSec(), chassis_msg->Velocity, chassis_msg->SteeringAngle);
+            ChassisData chassisData;
+            chassisData = vehicleDynamicsModel(chassis_msg->header.stamp.toSec(), chassis_msg->Velocity, chassis_msg->SteeringAngle);
+
+            // chassis odometry
             if (chassis_msg->Velocity != 0 && chassis_msg->Velocity != -0)
             {
-                chassis_num++;
                 SensorFrame SensorFrame;
-                SensorFrame.stamp = data.stamp;
+                SensorFrame.stamp = chassisData.stamp;
 
-                if (chassis_num == 1)
+                if (first_chassis_msg)
                 {
                     chassis_time = chassis_msg->header.stamp;
-                    firstChassisTime = chassis_time.toSec();
+                    first_chassis_msg = false;
                 }
                 else
                 {
                     chassis_delta_t = (chassis_msg->header.stamp - chassis_time).toSec();
                     chassis_time = chassis_msg->header.stamp;
 
-                    chassis_shift = chassis_shift + chassis_rot * (0.5 * data.velocity + 0.5 * last_chassis_v) * chassis_delta_t;
+                    chassis_trans = chassis_trans + chassis_rot * (0.5 * chassisData.velocity + 0.5 * last_chassis_v) * chassis_delta_t;
 
-                    Eigen::Vector3d angle_inc = (0.5 * data.angVelocity + 0.5 * last_chassis_angv) * chassis_delta_t;
-
+                    Eigen::Vector3d angle_inc = (0.5 * chassisData.angVelocity + 0.5 * last_chassis_angv) * chassis_delta_t;
                     Eigen::Quaterniond rot_inc = Eigen::Quaterniond(1.0, 0.5 * angle_inc[0], 0.5 * angle_inc[1], 0.5 * angle_inc[2]);
                     chassis_rot = chassis_rot * rot_inc;
                 }
-                // std::cout << "chassis time is " << chassis_msg->header.stamp.toSec() - firstChassisTime << " acc is" << ((data.velocity - last_chassis_v) / chassis_delta_t).transpose() << std::endl;
 
-                last_chassis_v = data.velocity;
-                last_chassis_angv = data.angVelocity;
-                Eigen::Vector3d pos(0, 0, 0);
-                if (saveWheel)
-                {
-                    myfileWheel.open(rmseFilec, ios::app);
-                    myfileWheel.precision(10);
-                    Eigen::AngleAxisd rotation_vector(0 * M_PI / 180, Eigen::Vector3d(0, 0, 1));
-                    Eigen::Quaterniond oriQ = Eigen::Quaterniond(rotation_vector);
+                last_chassis_v = chassisData.velocity;
+                last_chassis_angv = chassisData.angVelocity;
 
-                    pos[0] = chassis_shift[0];
-                    pos[1] = chassis_shift[1];
-                    pos[2] = chassis_shift[2];
-                    pos = 0.97 * (oriQ * pos);
-
-                    myfileWheel << chassis_msg->header.stamp << " ";
-                    // myfileWheel << data.angVelocity[0] << " " << data.angVelocity[1] << " " << data.angVelocity[2];
-                    myfileWheel << pos[0] << " " << pos[1] << " " << pos[2] << " "
-                                << chassis_rot.x() << " " << chassis_rot.y() << " " << chassis_rot.z() << " " << chassis_rot.w();
-                    myfileWheel << "\n";
-
-                    myfileWheel.close();
-                }
+                Eigen::Vector3d pos = changeTrans(chassis_trans, 0, 0.97);
                 SensorFrame.rot = chassis_rot;
                 SensorFrame.tra = pos;
                 caliber.addChassisFrame(SensorFrame);
+
+                // save pos
+                if (true)
+                {
+                    chassis_origin_file.open(chassis_origin_filename, ios::app);
+                    chassis_origin_file.precision(10);
+
+                    chassis_origin_file << chassis_msg->header.stamp << " ";
+                    chassis_origin_file << pos[0] << " " << pos[1] << " " << pos[2] << " "
+                                        << chassis_rot.x() << " " << chassis_rot.y() << " " << chassis_rot.z() << " " << chassis_rot.w();
+                    chassis_origin_file << "\n";
+
+                    chassis_origin_file.close();
+                }
+
+                // save angv
+                if (save_mode == "forKalibr")
+                {
+                    angv_chassis_file.open(angv_chassis_filename, ios::app);
+                    angv_chassis_file.precision(10);
+
+                    angv_chassis_file << chassis_msg->header.stamp << " ";
+                    angv_chassis_file << chassisData.angVelocity[0] << " " << chassisData.angVelocity[1] << " " << chassisData.angVelocity[2];
+                    angv_chassis_file << "\n";
+
+                    angv_chassis_file.close();
+                }
             }
         }
     }
+
     caliber.addImuFrame(caliber.imu_raw_buffer);
 
     // calib 结果
@@ -405,6 +356,8 @@ int main(int argc, char **argv)
         caliber.calibLidar2Imu();
         std::cout << "===============================lidar 2 chassis=============================================" << std::endl;
         caliber.calibLidar2Chassis();
+        std::cout << "===============================imu 2 chassis=============================================" << std::endl;
+        caliber.calibImu2Chassis();
     }
     else if (calib_type == "multi")
     {
