@@ -7,11 +7,13 @@
         <param name="/save_mode" value="forCalib"/>  
         <param name="/chassis_topic" value="/chassis_msgs"/>   
         <param name="/lidar_topic" value="/velodyne_points"/>
-        <param name="/imu_topic" value="/zed2/zed_node/imu/data"/>
+        <!-- <param name="/imu_topic" value="/zed2/zed_node/imu/data"/> -->
         <!-- <param name="/bag_file" value="/home/xxiao/dataset/LIO_Vehicle/parkinglot/p1.bag"/> -->
-        <param name="/bag_file" value="/home/xxiao/dataset/calib/Parkinglot1_25s.bag"/>
-        <!-- <param name="/imu_topic" value="/mti/sensor/imu"/>
-        <param name="/bag_file" value="/home/xxiao/dataset/LIO_Vehicle/cycle/Big2.bag"/> -->
+        <!-- <param name="/bag_file" value="/media/xxiao/xxiao/0424/0424UG02B2S.bag"/> -->
+        <!-- <param name="/bag_file" value="/home/xxiao/dataset/calib/Parkinglot1_25s.bag"/> -->
+        <param name="/imu_topic" value="/mti/sensor/imu"/>
+        <param name="/bag_file" value="/home/xxiao/dataset/calib/small2_10.bag"/>
+        <!-- <param name="/bag_file" value="/home/xxiao/dataset/LIO_Vehicle/cycle/Small1.bag"/> -->
         <!--simulate/real-->
         <param name="/data_type" value="real"/>
         <!--double/multi-->

@@ -24,6 +24,8 @@
 
 // const
 std::string imu_origin_fileName = "/home/xxiao/HitLidarImu/result/i0_imu_origin.txt";
+// std::string data_set="parkinglot1";
+std::string data_set = "small_fast";
 
 CalibExRLidarImu::CalibExRLidarImu()
 {
@@ -149,36 +151,56 @@ void CalibExRLidarImu::addImuFrame(const vector<ImuData> &imu_raw_buffer)
 
             // use ori
             double deltaT = imupose1.stamp - initTime;
+            // if (data_set == "parkinglot1")
+            // {
+            //     if (deltaT > 85)
+            //     {
+            //         scale = 1.0 / 2560;
+            //     }
+            //     else if (deltaT > 70)
+            //     {
+            //         scale = 1.0 / 1280.0;
+            //     }
+            //     else if (deltaT > 50)
+            //     {
+            //         scale = 1.0 / 640;
+            //     }
+            //     else if (deltaT > 16)
+            //     {
+            //         scale = 1.0 / 360;
+            //     }
+            //     else if (deltaT > 10)
+            //     {
+            //         scale = 1.0 / 70;
+            //     }
+            //     else if (deltaT > 7)
+            //     {
+            //         scale = 1.0 / 1.05;
+            //     }
 
-            if (deltaT > 85)
+                if (deltaT > 3 && timeFlag)
+                {
+                    last_V = last_V / 1.15;
+                    timeFlag = false;
+                }
+            // }
+            // else if (data_set == "small_fast")
+            // {
+                if (deltaT > 6)
             {
-                scale = 1.0 / 2560;
+                scale=1.0/1280;
             }
-            else if (deltaT > 70)
+            if (deltaT > 5)
             {
-                scale = 1.0 / 1280.0;
+                scale=1.0/640;
             }
-            else if (deltaT > 50)
-            {
-                scale = 1.0 / 640;
-            }
-            else if (deltaT > 16)
+            if (deltaT > 4)
             {
                 scale = 1.0 / 360;
             }
-            else if (deltaT > 10)
+            if (deltaT > 2)
             {
-                scale = 1.0 / 70;
-            }
-            else if (deltaT > 7)
-            {
-                scale = 1.0 / 1.05;
-            }
-
-            if (deltaT > 35 && timeFlag)
-            {
-                last_V = last_V * 1.15;
-                timeFlag = false;
+                scale = 1.0 / 240;
             }
 
             imupose.rot = initRot.inverse() * imupose.rot;
@@ -186,9 +208,17 @@ void CalibExRLidarImu::addImuFrame(const vector<ImuData> &imu_raw_buffer)
             last_P = last_P + imupose.rot * last_V * deltaT + imupose.rot * (averageAcc / 2.0 * deltaT * deltaT);
             last_V = (imupose.rot.inverse() * imupose1.rot) * averageAcc * deltaT + last_V;
         }
+        Eigen::Vector3d tmpP = last_P;
+        // if (data_set == "parkinglot1")
+        // {
+        //     tmpP = last_P * 1e-7;
+        // }
+        // else if (data_set == "small_fast")
+        // {
+        tmpP = last_P * 180 / 6605541.0;
+        //     std::cout<<"--2"<<std::endl;
+        // }
 
-        // Eigen::Vector3d tmpP = changeTrans(last_P, 57, 0.97);
-        Eigen::Vector3d tmpP = last_P * 1e-7;
         // std::cout<<"tmpP="<<tmpP.transpose()<<std::endl;
 
         // 储存imu frame
@@ -528,10 +558,10 @@ void CalibExRLidarImu::calibLidar2Imu()
     EigenAffineVector t2 = t[1];
 
     // 手动真值
-    f_l_i.rot = yawToQuaterniond(90);
+    f_l_i.rot = yawToQuaterniond(-30);
     Eigen::Vector3d ang1 = toEulerAngle(f_l_i.rot);
     savePose("i1_imu_gT", f_l_i, aligned_lidar_imu_buffer_);
-
+    return;
     // 优化
     // optimize("imu", aligned_lidar_imu_buffer_);
     // savePose("imu_ngT", f_l_i, aligned_lidar_imu_buffer_);
@@ -573,7 +603,8 @@ void CalibExRLidarImu::calibLidar2Chassis()
     f_l_c.rot = yawToQuaterniond(2.5);
     Eigen::Vector3d ang11 = toEulerAngle(f_l_c.rot);
     savePose("c1_chassis_gT", f_l_c, aligned_lidar_chassis_buffer_);
-
+    savePoseKalibr();
+    return;
     // 线性solve
     f_l_c = solve(corres);
     Eigen::Vector3d ang22 = toEulerAngle(f_l_c.rot);
@@ -930,39 +961,22 @@ void CalibExRLidarImu::printFrame(Frame frame)
 // for kalibr b-spline
 void CalibExRLidarImu::savePoseKalibr()
 {
-    ofstream myfile;
-    std::string rmseFile = "/home/xxiao/HitLidarImu/result/poseLidarKalibr.txt";
+    ofstream lidarKalibrFile;
+    std::string lidarKalibrFileName = "/home/xxiao/HitLidarImu/result/forKalibr/poseLidarKalibr.txt";
 
-    if (access(rmseFile.c_str(), 0) == 0) //文件存在
-    {
-        if (remove(rmseFile.c_str()) == 0)
-        {
-            std::cout << "poseLidarKalibr update done :)" << std::endl;
-        }
-        else
-        {
-            std::cout << "poseLidarKalibr update failed :(" << std::endl;
-        }
-    }
-    myfile.open(rmseFile, ios::app); //pose
-    myfile.precision(10);
+    deleteFile(lidarKalibrFileName);
+    lidarKalibrFile.open(lidarKalibrFileName, ios::app); //pose
+    lidarKalibrFile.precision(10);
     for (int i = 0; i < aligned_lidar_imu_buffer_.size(); i++)
     {
         LidarFrame lidar = aligned_lidar_imu_buffer_[i].first;
 
-        myfile << ros::Time().fromSec(lidar.stamp) << " ";
+        lidarKalibrFile << ros::Time().fromSec(lidar.stamp) << " ";
         Eigen::VectorXd v(6);
         v.head(3) = lidar.gT.topRightCorner<3, 1>();
-        // Eigen::Matrix3d t_b_l;
-        // t_b_l << 5.23689e-01, 8.5190979e-01, 0,
-        //         -8.5190979e-01, 5.23689e-01, 0,
-        //           0, 0, 1;
-        // Eigen::Matrix3d rotationMatrix = lidar.gT.topLeftCorner<3, 3>()*(t_b_l.inverse());
 
         Eigen::Matrix3d C = lidar.gT.topLeftCorner<3, 3>();
         Eigen::Vector3d p;
-        // Sometimes, because of roundoff error, the value of tr ends up outside
-        // the valid range of arccos. Truncate to the valid range.
         double tr = std::max(-1.0, std::min((C(0, 0) + C(1, 1) + C(2, 2) - 1.0) * 0.5, 1.0));
         double a = acos(tr);
 
@@ -989,11 +1003,11 @@ void CalibExRLidarImu::savePoseKalibr()
 
         v.tail(3) = p;
 
-        myfile << v[0] << " " << v[1];
-        myfile << " " << v[2] << " " << v[3] << " " << v[4] << " " << v[5];
-        myfile << "\n";
+        lidarKalibrFile << v[0] << " " << v[1];
+        lidarKalibrFile << " " << v[2] << " " << v[3] << " " << v[4] << " " << v[5];
+        lidarKalibrFile << "\n";
     }
-    myfile.close();
+    lidarKalibrFile.close();
 }
 
 // for EEHandEye
@@ -1099,7 +1113,7 @@ void CalibExRLidarImu::savePose(string sensorName, Frame f_a_b, vector<pair<Lida
     std::string sensor_fileName = "/home/xxiao/HitLidarImu/result/" + sensorName + ".txt";
     deleteFile(sensor_fileName);
 
-    sensor_file.open(sensor_fileName, ios::app); 
+    sensor_file.open(sensor_fileName, ios::app);
     sensor_file.precision(10);
     double time_offset = 0.0;
 

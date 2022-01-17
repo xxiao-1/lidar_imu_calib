@@ -356,8 +356,8 @@ int main(int argc, char **argv)
         caliber.calibLidar2Imu();
         std::cout << "===============================lidar 2 chassis=============================================" << std::endl;
         caliber.calibLidar2Chassis();
-        std::cout << "===============================imu 2 chassis=============================================" << std::endl;
-        caliber.calibImu2Chassis();
+        // std::cout << "===============================imu 2 chassis=============================================" << std::endl;
+        // caliber.calibImu2Chassis();
     }
     else if (calib_type == "multi")
     {
