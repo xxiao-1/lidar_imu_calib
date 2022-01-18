@@ -22,9 +22,22 @@ using namespace std;
 
 queue<sensor_msgs::PointCloud2ConstPtr> lidar_buffer;
 queue<sensor_msgs::ImuConstPtr> imu_buffer;
+
+// const
 std::string chassis_origin_filename = "/home/xxiao/HitLidarImu/result/c0_chassis_origin.txt";
 std::string angv_chassis_filename = "/home/xxiao/HitLidarImu/result/forKalibr/angv_chassis.txt";
 std::string angv_imu_filename = "/home/xxiao/HitLidarImu/result/forKalibr/angv_imu.txt";
+bool saveForTimeShift = true;              // using kalibr to get timeshift
+Eigen::Vector3d time_shift_scale(1, 1, 1); // between 0 and 1
+// 模拟数据外参真值
+Eigen::Matrix3d gt_M12, gt_M13, gt_M23;
+gt_M12 << 0.82708958, -0.5569211, 0.07590595, -0.28123537, -0.52697488, -0.80200009, 0.4866513, 0.64197848, -0.59248134;
+gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
+gt_M23 = gt_M12.inverse() * gt_M13;
+Eigen::Vector3d t12(0.51410915, 0.38709595, 0.92142013);
+Eigen::Vector3d t13(0.20966865, 0.41898404, 0.0902146);
+Eigen::Vector3d t23;
+t23 = t13 - t12;
 
 void lidarCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
 {
@@ -65,25 +78,84 @@ ChassisData vehicleDynamicsModel(double t, double Velocity, double Steer)
     return chassis_out;
 }
 
+void readSimulatePose(vector fileNames)
+{
+    for (int i = 0; i < 3; i++)
+    {
+        string fileName = fileNames[i];
+        Eigen::Vector3d old_tras;
+        Eigen::Quaterniond old_rot;
+        Eigen::Vector3d cur_tras;
+        Eigen::Quaterniond cur_rot;
+        ifstream infile;
+        string sline;
+        bool isFirstLine = true;
+
+        infile.open(fileName);
+        while (getline(infile, sline))
+        {
+            stringstream ss(sline);
+            string buf;
+            Eigen::Vector4d rot;
+            int j = 0;
+            while (ss >> buf)
+            {
+                if (j <= 3 && j > 0)
+                {
+                    cur_tras[j - 1] = atof(buf.c_str());
+                }
+                else if (j >= 4 && j <= 7)
+                {
+                    rot[j - 4] = atof(buf.c_str());
+                }
+                j++;
+            }
+            cur_rot = Eigen::Quaterniond(rot);
+
+            if (isFirstLine)
+            {
+                old_rot = cur_rot;
+                old_tras = cur_tras;
+                isFirstLine = false;
+                continue;
+            }
+            else
+            {
+                Frame sensor;
+                sensor.rot = caliber.getInterpolatedAttitude(old_rot, cur_rot, time_shift_scale[i]);
+                sensor.tra = caliber.getInterpolatedTranslation(old_tras, cur_tras, time_shift_scale[i]);
+
+                old_rot = cur_rot;
+                old_tras = cur_tras;
+                // save
+                if (i == 0)
+                {
+                    caliber.sensor_buffer_1.push_back(sensor);
+                }
+                else if (i == 1)
+                {
+                    caliber.sensor_buffer_2.push_back(sensor);
+                }
+                else
+                {
+                    caliber.sensor_buffer_3.push_back(sensor);
+                }
+            }
+        }
+        infile.close();
+    }
+}
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "calib_exR_lidar2imu_node");
     ros::NodeHandle nh, pnh("~");
 
     // get params
-    string calib_type, lidar_topic, imu_topic, chassis_topic, bag_file, save_mode, simulate_type, data_type;
-    vector<string> fileNames(3);
-    pnh.getParam("file_name1", fileNames[0]);
-    pnh.getParam("file_name2", fileNames[1]);
-    pnh.getParam("file_name3", fileNames[2]);
-    pnh.getParam("calib_type", calib_type);
-    pnh.getParam("simulate_type", simulate_type);
-    pnh.getParam("data_type", data_type);
-    pnh.getParam("lidar_topic", lidar_topic);
-    pnh.getParam("imu_topic", imu_topic);
-    pnh.getParam("chassis_topic", chassis_topic);
-    pnh.getParam("bag_file", bag_file);
-    pnh.getParam("save_mode", save_mode);
+    string calib_type, lidar_topic, imu_topic, chassis_topic, bag_file, data_type;
+
+    pnh.getParam("data_type", data_type);   // simulate || real
+    pnh.getParam("calib_type", calib_type); // multi || double
 
     // initialize caliber
     CalibExRLidarImu caliber;
@@ -94,116 +166,33 @@ int main(int argc, char **argv)
     assert(caliber.sensor_buffer_2.size() == 0);
     assert(caliber.sensor_buffer_3.size() == 0);
 
-    // simulate part------------------------------------------------------------------
-    Eigen::Vector3d time_factor(1, 1, 1);
     if (data_type == "simulate")
     {
-        // read new data
-        for (int i = 0; i < 3; i++)
-        {
-            string fileName = fileNames[i];
-            Eigen::Vector3d old_tras;
-            Eigen::Quaterniond old_rot;
-            Eigen::Vector3d cur_tras;
-            Eigen::Quaterniond cur_rot;
-            bool isFirstLine = true;
+        vector<string> fileNames(3);
+        pnh.getParam("file_name1", fileNames[0]);
+        pnh.getParam("file_name2", fileNames[1]);
+        pnh.getParam("file_name3", fileNames[2]);
+        readSimulatePose(fileNames);
 
-            ifstream infile;
-            infile.open(fileName);
-
-            string sline;
-            while (getline(infile, sline))
-            {
-                stringstream ss(sline);
-                string buf;
-
-                Eigen::Vector4d rot;
-
-                // parse the line
-                int j = 0;
-                while (ss >> buf)
-                {
-                    if (j <= 3 && j > 0)
-                    {
-                        cur_tras[j - 1] = atof(buf.c_str());
-                    }
-                    else if (j >= 4 && j <= 7)
-                    {
-                        rot[j - 4] = atof(buf.c_str());
-                    }
-                    j++;
-                }
-                cur_rot = Eigen::Quaterniond(rot);
-
-                if (isFirstLine)
-                {
-                    old_rot = cur_rot;
-                    old_tras = cur_tras;
-                    isFirstLine = false;
-                    continue;
-                }
-                else
-                {
-                    Frame sensor;
-                    sensor.rot = caliber.getInterpolatedAttitude(old_rot, cur_rot, time_factor[i]);
-                    sensor.tra = caliber.getInterpolatedTranslation(old_tras, cur_tras, time_factor[i]);
-
-                    old_rot = cur_rot;
-                    old_tras = cur_tras;
-                    // save
-                    if (i == 0)
-                    {
-                        caliber.sensor_buffer_1.push_back(sensor);
-                    }
-                    else if (i == 1)
-                    {
-                        caliber.sensor_buffer_2.push_back(sensor);
-                    }
-                    else
-                    {
-                        caliber.sensor_buffer_3.push_back(sensor);
-                    }
-                }
-            }
-            infile.close();
-        } // end read
         std::cout << "sensor size:" << caliber.sensor_buffer_1.size() << " " << caliber.sensor_buffer_2.size() << " " << caliber.sensor_buffer_3.size() << std::endl;
-        // check read
-        // cout << caliber.sensor_buffer_1.size() << "  " << caliber.sensor_buffer_2.size() << " " << caliber.sensor_buffer_3.size() << endl;
-        if (simulate_type == "multi")
+        if (calib_type == "multi")
         {
             caliber.calibSimulateMulti(caliber.sensor_buffer_1, caliber.sensor_buffer_2, caliber.sensor_buffer_3);
         }
-        else if (simulate_type == "double")
+        else if (calib_type == "double")
         {
-            // 真值
-            Eigen::Matrix3d gt_M12, gt_M13, gt_M23;
-            gt_M12 << 0.82708958, -0.5569211, 0.07590595, -0.28123537, -0.52697488, -0.80200009, 0.4866513, 0.64197848, -0.59248134;
-            gt_M13 << -0.55487144, 0.61344023, -0.56196866, 0.63988962, 0.74637651, 0.18292996, 0.53165681, -0.2580953, -0.80667705;
-            gt_M23 = gt_M12.inverse() * gt_M13;
-
-            Eigen::Vector3d t12(0.51410915, 0.38709595, 0.92142013);
-            Eigen::Vector3d t13(0.20966865, 0.41898404, 0.0902146);
-            Eigen::Vector3d t23;
-            t23 = t13 - t12;
-
-            std::cout << "1-2:" << std::endl;
             caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_2, Eigen::Quaterniond(gt_M12), t12);
-
-            std::cout << "----------------------------------------------------------------------------------------------------------------" << std::endl;
-            std::cout << "1-3:" << std::endl;
             caliber.calibSimulateDouble(caliber.sensor_buffer_1, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M13), t13);
-
-            std::cout << "----------------------------------------------------------------------------------------------------------------" << std::endl;
-            std::cout << "2-3:" << std::endl;
             caliber.calibSimulateDouble(caliber.sensor_buffer_2, caliber.sensor_buffer_3, Eigen::Quaterniond(gt_M23), t23);
         }
-        //
-
         return 0;
-    } // simulate
+    }
 
     // real part----------------------------------------------------------------------
+    pnh.getParam("lidar_topic", lidar_topic);
+    pnh.getParam("imu_topic", imu_topic);
+    pnh.getParam("chassis_topic", chassis_topic);
+    pnh.getParam("bag_file", bag_file);
 
     // read bagfile
     rosbag::Bag bag;
@@ -264,17 +253,13 @@ int main(int argc, char **argv)
 
             caliber.imu_raw_buffer.push_back(imuData);
 
-            if (save_mode == "forKalibr")
+            if (saveForTimeShift)
             {
-
                 angv_imu_file.open(angv_imu_filename, ios::app);
                 angv_imu_file.precision(10);
-
                 angv_imu_file << imu_msg->header.stamp << " ";
                 angv_imu_file << imu_msg->angular_velocity.x << " " << imu_msg->angular_velocity.y << " " << imu_msg->angular_velocity.z;
-
                 angv_imu_file << "\n";
-
                 angv_imu_file.close();
             }
         }
@@ -317,7 +302,7 @@ int main(int argc, char **argv)
                 SensorFrame.tra = pos;
                 caliber.addChassisFrame(SensorFrame);
 
-                // save pos
+                // save vehicle pos
                 if (true)
                 {
                     chassis_origin_file.open(chassis_origin_filename, ios::app);
@@ -327,12 +312,11 @@ int main(int argc, char **argv)
                     chassis_origin_file << pos[0] << " " << pos[1] << " " << pos[2] << " "
                                         << chassis_rot.x() << " " << chassis_rot.y() << " " << chassis_rot.z() << " " << chassis_rot.w();
                     chassis_origin_file << "\n";
-
                     chassis_origin_file.close();
                 }
 
-                // save angv
-                if (save_mode == "forKalibr")
+                // save vehicle angv
+                if (saveForTimeShift)
                 {
                     angv_chassis_file.open(angv_chassis_filename, ios::app);
                     angv_chassis_file.precision(10);
@@ -352,12 +336,8 @@ int main(int argc, char **argv)
     // calib 结果
     if (calib_type == "double")
     {
-        std::cout << "===============================lidar 2 imu=============================================" << std::endl;
         caliber.calibLidar2Imu();
-        std::cout << "===============================lidar 2 chassis=============================================" << std::endl;
         caliber.calibLidar2Chassis();
-        // std::cout << "===============================imu 2 chassis=============================================" << std::endl;
-        // caliber.calibImu2Chassis();
     }
     else if (calib_type == "multi")
     {
